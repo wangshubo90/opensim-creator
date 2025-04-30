@@ -99,7 +99,7 @@ def build_osc(conf: BuildConfiguration):
         other_build_args = f'--config {conf.get_osc_build_type()} -j{conf.concurrency}'
 
         # configure
-        _run(f'cmake -S . -B {conf.get_osc_build_dir()} {conf.generator_flags} -DCMAKE_PREFIX_PATH={os.path.abspath(conf.get_dependencies_install_dir())} -DOSC_BUILD_DOCS={"ON" if conf.build_docs else "OFF"} -DCMAKE_POSITION_INDEPENDENT_CODE=ON')
+        _run(f'cmake -S . -B {conf.get_osc_build_dir()} {conf.generator_flags} -DCMAKE_PREFIX_PATH={os.path.abspath(conf.get_dependencies_install_dir())} -DOSC_BUILD_DOCS={"ON" if conf.build_docs else "OFF"} -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_CXX_FLAGS="/WX-"')
 
         # build+run oscar test suite
         test_oscar_path = os.path.join(conf.get_osc_build_dir(), 'liboscar', 'testing', conf.get_osc_build_type(), 'testoscar')
