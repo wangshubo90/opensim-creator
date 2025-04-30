@@ -584,6 +584,8 @@ namespace osc::ui
         void add_text(const Vec2& position, const Color& color, CStringView text);
         void add_line(const Vec2& p1, const Vec2& p2, const Color& color, float thickness = 1.0f);
         void add_triangle_filled(const Vec2 p0, const Vec2& p1, const Vec2& p2, const Color& color);
+        void push_clip_rect(const Rect&, bool intersect_with_currect_clip_rect = false);
+        void pop_clip_rect();
 
         void render_to(RenderTexture&);
     private:
@@ -1024,21 +1026,6 @@ namespace osc::ui
     {
         return 15.0f;
     }
-
-    void gizmo_demo_draw_grid(
-        const Mat4& model_matrix,
-        const Mat4& view_matrix,
-        const Mat4& projection_matrix,
-        float grid_size,
-        const Rect& screenspace_rect
-    );
-
-    void gizmo_demo_draw_cube(
-        Mat4& model_matrix,
-        const Mat4& view_matrix,
-        const Mat4& projection_matrix,
-        const Rect& screenspace_rect
-    );
 
     bool draw_gizmo_mode_selector(
         Gizmo&

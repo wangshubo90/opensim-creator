@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
-
-# `build_mac`: performs an end-to-end build of OpenSim Creator on the
-# mac platform
 #
-#     usage (must be ran in repository root): `bash build_mac.sh`
-#
-# this assumes the system already has the necessary dependencies installed
+# Performs an end-to-end build of OpenSim Creator MacOS.
 
 
 # error out of this script if it fails for any reason
@@ -74,7 +69,6 @@ cmake \
     -B "osc-deps-build" \
     -DCMAKE_BUILD_TYPE=${OSC_DEPS_BUILD_TYPE} \
     -DCMAKE_INSTALL_PREFIX="osc-deps-install" \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     ${OSC_CMAKE_CONFIG_EXTRA}
 cmake --build "osc-deps-build" -j${OSC_BUILD_CONCURRENCY}
 
@@ -84,7 +78,6 @@ cmake \
     -B "osc-build" \
     -DCMAKE_BUILD_TYPE=${OSC_BUILD_TYPE} \
     -DCMAKE_PREFIX_PATH="${PWD}/osc-deps-install" \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     ${OSC_CMAKE_CONFIG_EXTRA}
 cmake --build "osc-build" -j${OSC_BUILD_CONCURRENCY}
 

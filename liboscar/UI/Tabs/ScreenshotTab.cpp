@@ -18,6 +18,7 @@
 #include <liboscar/Maths/Vec2.h>
 #include <liboscar/Maths/Vec3.h>
 #include <liboscar/Maths/Vec4.h>
+#include <liboscar/Platform/App.h>
 #include <liboscar/Platform/IconCodepoints.h>
 #include <liboscar/Platform/os.h>
 #include <liboscar/Platform/Screenshot.h>
@@ -175,18 +176,19 @@ private:
 
     void action_try_save_annotated_screenshot()
     {
-        const std::optional<std::filesystem::path> maybe_image_path =
-            prompt_user_for_file_save_location_add_extension_if_necessary("png");
-
-        if (maybe_image_path) {
-            std::ofstream fout{*maybe_image_path, std::ios_base::binary};
-            if (not fout) {
-                throw std::runtime_error{maybe_image_path->string() + ": cannot open for writing"};
+        App::upd().prompt_user_to_save_file_with_extension_async([screenshot = render_annotated_screenshot()](std::optional<std::filesystem::path> p)
+        {
+            if (not p) {
+                return;  // User cancelled out.
             }
-            const Texture2D annotated_screenshot = render_annotated_screenshot();
-            write_to_png(annotated_screenshot, fout);
-            open_file_in_os_default_application(*maybe_image_path);
-        }
+
+            std::ofstream fout{*p, std::ios_base::binary};
+            if (not fout) {
+                throw std::runtime_error{p->string() + ": cannot open for writing"};
+            }
+            write_to_png(screenshot, fout);
+            open_file_in_os_default_application(*p);
+        }, "png");
     }
 
     Texture2D render_annotated_screenshot()
@@ -194,21 +196,22 @@ private:
         RenderTexture render_texture{{.dimensions = image_texture_.dimensions()}};
 
         // blit the screenshot into the output
-        //graphics::blit(image_texture_, render_texture);
+        graphics::blit(image_texture_, render_texture);
 
         // draw overlays to a local ImGui draw list
         ui::DrawList draw_list;
-        Color outline_color = c_selected_color;
-        outline_color.a = 1.0f;
+        draw_list.push_clip_rect({{}, image_texture_.dimensions()});
+
         draw_image_overlays(
             draw_list,
             Rect{{0.0f, 0.0f}, image_texture_.dimensions()},
             {0.0f, 0.0f, 0.0f, 0.0f},
-            outline_color
+            c_selected_color.with_alpha(1.0f)
         );
 
         // render draw list to output
         draw_list.render_to(render_texture);
+        draw_list.pop_clip_rect();
 
         Texture2D rv{render_texture.dimensions(), TextureFormat::RGB24, ColorSpace::sRGB};
         graphics::copy_texture(render_texture, rv);

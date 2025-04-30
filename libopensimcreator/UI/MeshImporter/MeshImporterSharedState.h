@@ -1,5 +1,6 @@
 #pragma once
 
+#include <libopensimcreator/Documents/FileFilters.h>
 #include <libopensimcreator/Documents/MeshImporter/Body.h>
 #include <libopensimcreator/Documents/MeshImporter/CrossrefDirection.h>
 #include <libopensimcreator/Documents/MeshImporter/Document.h>
@@ -45,7 +46,9 @@
 #include <liboscar/Platform/os.h>
 #include <liboscar/UI/oscimgui.h>
 #include <liboscar/UI/Panels/PerfPanel.h>
+#include <liboscar/UI/Tabs/TabSaveResult.h>
 #include <liboscar/UI/Widgets/LogViewer.h>
+#include <liboscar/Utils/Assertions.h>
 #include <liboscar/Utils/CStringView.h>
 #include <liboscar/Utils/EnumHelpers.h>
 #include <liboscar/Utils/StdVariantHelpers.h>
@@ -56,12 +59,13 @@
 #include <cstddef>
 #include <exception>
 #include <filesystem>
+#include <future>
 #include <memory>
 #include <optional>
 #include <span>
 #include <sstream>
-#include <string>
 #include <string_view>
+#include <string>
 #include <unordered_set>
 #include <utility>
 #include <variant>
@@ -77,7 +81,7 @@ namespace osc::mi
     // shared data support
     //
     // data that's shared between multiple UI states.
-    class MeshImporterSharedState final {
+    class MeshImporterSharedState final : public std::enable_shared_from_this<MeshImporterSharedState> {
     public:
         MeshImporterSharedState(Widget* parent) :
             MeshImporterSharedState{parent, std::vector<std::filesystem::path>{}}
@@ -121,44 +125,61 @@ namespace osc::mi
         // MODEL GRAPH STUFF
         //
 
-        bool openOsimFileAsModelGraph()
+        void openOsimFileAsModelGraph()
         {
-            const std::optional<std::filesystem::path> maybeOsimPath = prompt_user_to_select_file({"osim"});
+            if (not shared_from_this()) {
+                log_critical("cannot open import dialog because the mesh importer's state isn't reference-counted");
+                return;
+            }
 
-            if (maybeOsimPath)
-            {
-                m_ModelGraphSnapshots = UndoableDocument{CreateModelFromOsimFile(*maybeOsimPath)};
-                m_MaybeModelGraphExportLocation = *maybeOsimPath;
-                m_MaybeModelGraphExportedUID = m_ModelGraphSnapshots.head_id();
-                return true;
-            }
-            else
-            {
-                return false;
-            }
+            App::upd().prompt_user_to_select_file_async(
+                [state = shared_from_this()](FileDialogResponse response)
+                {
+                    if (not state) {
+                        return;  // Something went horribly wrong (should've been checked earlier).
+                    }
+                    if (response.size() != 1) {
+                        return;  // Error, cancellation, or the user somehow selected >1 file.
+                    }
+
+                    state->m_ModelGraphSnapshots = UndoableDocument{CreateModelFromOsimFile(response.front())};
+                    state->m_MaybeModelGraphExportLocation = response.front();
+                    state->m_MaybeModelGraphExportedUID = state->m_ModelGraphSnapshots.head_id();
+                },
+                GetModelFileFilters()
+            );
         }
 
-        bool exportAsModelGraphAsOsimFile()
+        std::future<TabSaveResult> exportAsModelGraphAsOsimFile()
         {
-            const std::optional<std::filesystem::path> maybeExportPath =
-                prompt_user_for_file_save_location_add_extension_if_necessary("osim");
-
-            if (!maybeExportPath)
+            auto promise = std::make_shared<std::promise<TabSaveResult>>();
+            App::upd().prompt_user_to_save_file_with_extension_async([promise, ptr = shared_from_this()](std::optional<std::filesystem::path> p)
             {
-                return false;  // user probably cancelled out
-            }
-
-            return exportModelGraphTo(*maybeExportPath);
+                if (not p) {
+                    promise->set_value(TabSaveResult::Cancelled);
+                    return;  // user cancelled out of the prompt
+                }
+                try {
+                    ptr->exportModelGraphTo(*p);
+                    promise->set_value(TabSaveResult::Done);
+                }
+                catch (const std::exception&) {
+                    promise->set_value(TabSaveResult::Cancelled);
+                }
+            }, "osim");
+            return promise->get_future();
         }
 
-        bool exportModelGraphAsOsimFile()
+        std::future<TabSaveResult> exportModelGraphAsOsimFile()
         {
-            if (m_MaybeModelGraphExportLocation.empty())
-            {
+            if (m_MaybeModelGraphExportLocation.empty()) {
                 return exportAsModelGraphAsOsimFile();
             }
-
-            return exportModelGraphTo(m_MaybeModelGraphExportLocation);
+            else {
+                std::promise<TabSaveResult> promise;
+                promise.set_value(exportModelGraphTo(m_MaybeModelGraphExportLocation) ? TabSaveResult::Done : TabSaveResult::Cancelled);
+                return promise.get_future();
+            }
         }
 
         bool isModelGraphUpToDateWithDisk() const
@@ -272,19 +293,30 @@ namespace osc::mi
         // MESH LOADING STUFF
         //
 
-        std::vector<std::filesystem::path> promptUserForMeshFiles() const
-        {
-            return prompt_user_to_select_files(GetSupportedSimTKMeshFormats());
-        }
-
-        void pushMeshLoadRequests(UID attachmentPoint, std::vector<std::filesystem::path> paths)
+        void pushMeshLoadRequests(std::vector<std::filesystem::path> paths, UID attachmentPoint = MIIDs::Ground())
         {
             m_MeshLoader.send(MeshLoadRequest{attachmentPoint, std::move(paths)});
         }
 
-        void promptUserForMeshFilesAndPushThemOntoMeshLoader()
+        void promptUserForMeshFilesAndPushThemOntoMeshLoader(UID attachmentPoint = MIIDs::Ground())
         {
-            pushMeshLoadRequests(promptUserForMeshFiles());
+            if (not shared_from_this()) {
+                log_critical("cannot open mesh import dialog because the mesh importer's state isn't reference-counted");
+                return;
+            }
+            App::upd().prompt_user_to_select_file_async(
+                [state = shared_from_this(), attachmentPoint](FileDialogResponse response)
+                {
+                    if (not state) {
+                        return;  // Something went wrong
+                    }
+                    std::vector<std::filesystem::path> paths(response.begin(), response.end());
+                    state->pushMeshLoadRequests(paths, attachmentPoint);
+                },
+                GetSupportedSimTKMeshFormatsAsFilters(),
+                std::nullopt,
+                true
+            );
         }
 
         void reloadMeshes()
@@ -813,26 +845,21 @@ namespace osc::mi
             std::vector<std::string> issues;
             std::unique_ptr<OpenSim::Model> m;
 
-            try
-            {
+            try {
                 m = CreateOpenSimModelFromMeshImporterDocument(getModelGraph(), m_ModelCreationFlags, issues);
             }
-            catch (const std::exception& ex)
-            {
+            catch (const std::exception& ex) {
                 log_error("error occurred while trying to create an OpenSim model from the mesh editor scene: %s", ex.what());
             }
 
-            if (m)
-            {
+            if (m) {
                 m->print(exportPath.string());
                 m_MaybeModelGraphExportLocation = exportPath;
                 m_MaybeModelGraphExportedUID = m_ModelGraphSnapshots.head_id();
                 return true;
             }
-            else
-            {
-                for (const std::string& issue : issues)
-                {
+            else {
+                for (const std::string& issue : issues) {
                     log_error("%s", issue.c_str());
                 }
                 return false;
@@ -849,21 +876,6 @@ namespace osc::mi
             {
                 return m_MaybeModelGraphExportLocation.filename().string();
             }
-        }
-
-        void pushMeshLoadRequests(std::vector<std::filesystem::path> paths)
-        {
-            pushMeshLoadRequests(MIIDs::Ground(), std::move(paths));
-        }
-
-        void pushMeshLoadRequest(UID attachmentPoint, const std::filesystem::path& path)
-        {
-            pushMeshLoadRequests(attachmentPoint, std::vector<std::filesystem::path>{path});
-        }
-
-        void pushMeshLoadRequest(const std::filesystem::path& meshFilePath)
-        {
-            pushMeshLoadRequest(MIIDs::Ground(), meshFilePath);
         }
 
         // called when the mesh loader responds with a fully-loaded mesh

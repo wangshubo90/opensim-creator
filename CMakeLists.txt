@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(osc VERSION 0.5.21 LANGUAGES CXX C)
+project(osc VERSION 0.5.23 LANGUAGES CXX C)
 
 
 set(OSC_BUILD_OPENSIMCREATOR ON
@@ -10,10 +10,6 @@ set(OSC_BUILD_OPENSIMCREATOR ON
 set(OSC_BUILD_DOCS OFF
     CACHE BOOL
     "enable/disable building the documentation (requires that sphinx-build is available on the PATH)"
-)
-set(OSC_BUILD_PYTHON_BINDINGS ON
-    CACHE BOOL
-    "enable/disable building python bindings"
 )
 
 # note: this has to be done at the top-level, so that `ctest --show-only` works for
@@ -26,9 +22,6 @@ add_subdirectory(hellooscar)
 if (${OSC_BUILD_OPENSIMCREATOR})
     add_subdirectory(libopensimcreator)
     add_subdirectory(osc)
-    if(${OSC_BUILD_PYTHON_BINDINGS})
-        add_subdirectory(opensimcreator)
-    endif()
 endif()
 if(${OSC_BUILD_DOCS})
     add_subdirectory(docs)

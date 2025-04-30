@@ -47,7 +47,6 @@
 #include <liboscar/Platform/ResourceLoader.h>
 #include <liboscar/Platform/ResourcePath.h>
 #include <liboscar/Platform/WindowID.h>
-#include <liboscar/Shims/Cpp20/bit.h>
 #include <liboscar/Shims/Cpp23/ranges.h>
 #include <liboscar/Shims/Cpp23/utility.h>
 #include <liboscar/UI/Detail/ImGuizmo.h>
@@ -79,6 +78,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <concepts>
 #include <cstddef>
@@ -95,7 +95,6 @@
 #include <variant>
 #include <vector>
 
-namespace graphics = osc::graphics;
 namespace plot = osc::ui::plot;
 namespace rgs = std::ranges;
 using namespace osc::literals;
@@ -105,7 +104,7 @@ template<>
 struct osc::Converter<ImGuiMouseCursor, CursorShape> final {
     CursorShape operator()(ImGuiMouseCursor cursor) const
     {
-        static_assert(ImGuiMouseCursor_COUNT == 9);
+        static_assert(ImGuiMouseCursor_COUNT == 11);
 
         switch (cursor) {
         case ImGuiMouseCursor_None:       return CursorShape::Hidden;
@@ -117,6 +116,8 @@ struct osc::Converter<ImGuiMouseCursor, CursorShape> final {
         case ImGuiMouseCursor_ResizeNESW: return CursorShape::ResizeDiagonalNESW;
         case ImGuiMouseCursor_ResizeNWSE: return CursorShape::ResizeDiagonalNWSE;
         case ImGuiMouseCursor_Hand:       return CursorShape::PointingHand;
+        case ImGuiMouseCursor_Wait:       return CursorShape::Wait;
+        case ImGuiMouseCursor_Progress:   return CursorShape::Progress;
         case ImGuiMouseCursor_NotAllowed: return CursorShape::Forbidden;
         default:                          return CursorShape::Arrow;
         }
@@ -294,41 +295,6 @@ namespace
         }
     )";
 
-    // HACK: this shouldn't be necessary, but is, because the legacy draw list
-    // rendering code was dependent on it.
-    constexpr std::string_view c_custom_ui_renderer_vertex_shader_src = R"(
-        #version 330 core
-
-        uniform mat4 uProjMat;
-        uniform mat4 uViewMat;
-        uniform mat4 uModelMat;
-
-        layout (location = 0) in vec3 aPos;
-        layout (location = 3) in vec4 aColor;
-
-        out vec4 aVertColor;
-
-        void main()
-        {
-            gl_Position = uProjMat * uViewMat * uModelMat * vec4(aPos, 1.0);
-            aVertColor = aColor;
-        }
-    )";
-
-    // HACK: this shouldn't be necessary, but is, because the legacy draw list
-    // rendering code was dependent on it.
-    constexpr std::string_view c_custom_ui_renderer_fragment_shader_src = R"(
-        #version 330 core
-
-        in vec4 aVertColor;
-        out vec4 FragColor;
-
-        void main()
-        {
-            FragColor = aVertColor;
-        }
-    )";
-
     ImTextureID to_imgui_texture_id(UID id)
     {
         static_assert(sizeof(decltype(id.get())) <= sizeof(ImTextureID));
@@ -456,7 +422,8 @@ namespace
         const ImDrawData& draw_data,
         const ImDrawList&,
         Mesh& mesh,
-        const ImDrawCmd& draw_command)
+        const ImDrawCmd& draw_command,
+        RenderTexture* maybe_target)
     {
         OSC_ASSERT(draw_command.UserCallback == nullptr && "user callbacks are not supported in oscar's ImGui renderer impl");
 
@@ -485,11 +452,26 @@ namespace
             draw_command.VtxOffset
         });
 
+        // setup texture binding (it's almost always the font texture)
         if (const auto* texture = lookup_or_nullptr(bd.textures_allocated_this_frame, to_uid(draw_command.GetTexID()))) {
             std::visit(Overload{
                 [&bd](const auto& texture) { bd.ui_material.set("uTexture", texture); },
             }, *texture);
-            graphics::draw(mesh, identity<Mat4>(), bd.ui_material, bd.camera, std::nullopt, sub_mesh_index);
+        }
+        else if (bd.font_texture) {
+            // this is a sane fallback for custom drawlists, which might not have set
+            // a texture ID (imgui always sets it).
+            bd.ui_material.set("uTexture", *bd.font_texture);
+        }
+
+        // draw
+        graphics::draw(mesh, identity<Mat4>(), bd.ui_material, bd.camera, std::nullopt, sub_mesh_index);
+
+        // flush draw queue to output
+        if (maybe_target) {
+            bd.camera.render_to(*maybe_target);
+        }
+        else {
             bd.camera.render_to_screen();
         }
     }
@@ -497,7 +479,8 @@ namespace
     void render_drawlist(
         OscarImguiBackendData& bd,
         const ImDrawData& draw_data,
-        ImDrawList& draw_list)
+        ImDrawList& draw_list,
+        RenderTexture* maybe_target)
     {
         // HACK: convert all ImGui-provided colors from sRGB to linear
         //
@@ -530,7 +513,7 @@ namespace
 
         // iterate through command buffer
         for (const ImDrawCmd& draw_command : draw_list.CmdBuffer) {
-            render_draw_command(bd, draw_data, draw_list, mesh, draw_command);
+            render_draw_command(bd, draw_data, draw_list, mesh, draw_command, maybe_target);
         }
         mesh.clear();
     }
@@ -556,9 +539,9 @@ namespace
     }
 }
 
-namespace osc::ui::graphics_backend
+namespace
 {
-    bool init()
+    void graphics_backend_init()
     {
         ImGuiIO& io = ImGui::GetIO();
         OSC_ASSERT(io.BackendRendererUserData == nullptr && "an oscar ImGui renderer backend is already initialized - this is a developer error (double-initialization)");
@@ -567,11 +550,9 @@ namespace osc::ui::graphics_backend
         io.BackendRendererUserData = static_cast<void*>(new OscarImguiBackendData{});
         io.BackendRendererName = "imgui_impl_osc";
         io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
-
-        return true;
     }
 
-    void shutdown()
+    void graphics_backend_shutdown()
     {
         OscarImguiBackendData* bd = get_graphics_backend_data();
         OSC_ASSERT(bd != nullptr && "no oscar ImGui renderer backend was available to shutdown - this is a developer error (double-free)");
@@ -586,7 +567,7 @@ namespace osc::ui::graphics_backend
         delete bd;  // NOLINT(cppcoreguidelines-owning-memory)
     }
 
-    void on_start_new_frame()
+    void graphics_backend_on_start_new_frame()
     {
         // `ImGui_ImplOpenGL3_CreateDeviceObjects` is now part of constructing `OscarImguiBackendData`
 
@@ -599,30 +580,30 @@ namespace osc::ui::graphics_backend
         bd->textures_allocated_this_frame.try_emplace(bd->font_texture_id, *bd->font_texture);  // (so that all lookups can hit the same LUT)
     }
 
-    void mark_fonts_for_reupload()
+    void graphics_backend_mark_fonts_for_reupload()
     {
         if (OscarImguiBackendData* bd = get_graphics_backend_data()) {
             bd->font_texture.reset();
         }
     }
 
-    void render(ImDrawData* draw_data)
+    void graphics_backend_render(ImDrawData* draw_data, RenderTexture* maybe_target = nullptr)
     {
         OscarImguiBackendData* bd = get_graphics_backend_data();
         OSC_ASSERT(bd != nullptr && "no oscar ImGui renderer backend was available to shutdown - this is a developer error");
 
         setup_camera_view_matrix(*draw_data, bd->camera);
         for (int n = 0; n < draw_data->CmdListsCount; ++n) {
-            render_drawlist(*bd, *draw_data, *draw_data->CmdLists[n]);
+            render_drawlist(*bd, *draw_data, *draw_data->CmdLists[n], maybe_target);
         }
     }
 
-    ImTextureID allocate_texture_for_current_frame(const Texture2D& texture)
+    ImTextureID graphics_backend_allocate_texture_for_current_frame(const Texture2D& texture)
     {
         return ::allocate_texture_for_current_frame(texture);
     }
 
-    ImTextureID allocate_texture_for_current_frame(const RenderTexture& texture)
+    ImTextureID graphics_backend_allocate_texture_for_current_frame(const RenderTexture& texture)
     {
         return ::allocate_texture_for_current_frame(texture);
     }
@@ -723,7 +704,7 @@ namespace
     // freeing the memory with `ImGui::MemFree`
     char* to_imgui_allocated_copy(std::span<const char> span)
     {
-        auto* ptr = cpp20::bit_cast<char*>(ImGui::MemAlloc(span.size_bytes()));
+        auto* ptr = std::bit_cast<char*>(ImGui::MemAlloc(span.size_bytes()));
         rgs::copy(span, ptr);
         return ptr;
     }
@@ -797,7 +778,7 @@ namespace
         rv.WorkPos = os_monitor.usable_bounds().p1;
         rv.WorkSize = dimensions_of(os_monitor.usable_bounds());
         rv.DpiScale = os_monitor.physical_dpi() / 96.0f;
-        rv.PlatformHandle = cpp20::bit_cast<void*>(i);
+        rv.PlatformHandle = std::bit_cast<void*>(i);
         return rv;
     }
 
@@ -884,7 +865,7 @@ namespace
             }
 
             io.Fonts->Build();
-            ui::graphics_backend::mark_fonts_for_reupload();
+            graphics_backend_mark_fonts_for_reupload();
         }
 
         // ensure style is scaled correctly
@@ -1153,7 +1134,7 @@ namespace
         if (io.BackendFlags & ImGuiBackendFlags_HasMouseHoveredViewport) {
             ImGuiID mouse_viewport_id = 0;
             if (app.is_alive(bd->MouseWindowID)) {
-                if (const ImGuiViewport* mouse_viewport = ImGui::FindViewportByPlatformHandle(cpp20::bit_cast<void*>(bd->MouseWindowID))) {
+                if (const ImGuiViewport* mouse_viewport = ImGui::FindViewportByPlatformHandle(std::bit_cast<void*>(bd->MouseWindowID))) {
                     mouse_viewport_id = mouse_viewport->ID;
                 }
             }
@@ -1738,7 +1719,7 @@ void osc::ui::context::init(App& app)
     ImGui_ImplOscar_Init(app.main_window_id());
 
     // init ImGui for oscar's graphics backend (OpenGL)
-    graphics_backend::init();
+    graphics_backend_init();
 
     // init extra parts (plotting, gizmos, etc.)
     ImPlot::CreateContext();
@@ -1750,7 +1731,7 @@ void osc::ui::context::shutdown(App& app)
     ImGuizmo::DestroyContext();
     ImPlot::DestroyContext();
 
-    graphics_backend::shutdown();
+    graphics_backend_shutdown();
     ImGui_ImplOscar_Shutdown(app);
     ImGui::DestroyContext();
 }
@@ -1772,7 +1753,7 @@ bool osc::ui::context::on_event(Event& ev)
 
 void osc::ui::context::on_start_new_frame(App& app)
 {
-    graphics_backend::on_start_new_frame();
+    graphics_backend_on_start_new_frame();
     ImGui_ImplOscar_NewFrame(app);
     ImGui::NewFrame();
 
@@ -1789,7 +1770,7 @@ void osc::ui::context::render()
 
     {
         OSC_PERF("graphics_backend::render(ImGui::GetDrawData())");
-        graphics_backend::render(ImGui::GetDrawData());
+        graphics_backend_render(ImGui::GetDrawData());
     }
 }
 
@@ -2580,76 +2561,32 @@ void osc::ui::DrawListAPI::add_triangle_filled(const Vec2 p0, const Vec2& p1, co
     impl_get_drawlist().AddTriangleFilled(p0, p1, p2, to_ImU32(color));
 }
 
+void osc::ui::DrawListAPI::push_clip_rect(const Rect& rect, bool intersect_with_currect_clip_rect)
+{
+    impl_get_drawlist().PushClipRect(rect.p1, rect.p2, intersect_with_currect_clip_rect);
+}
+
+void osc::ui::DrawListAPI::pop_clip_rect()
+{
+    impl_get_drawlist().PopClipRect();
+}
+
 void osc::ui::DrawListAPI::render_to(RenderTexture& target)
 {
-    // TODO: this should be merged with `ui_graphics_backend`
-
     ImDrawList& drawlist = impl_get_drawlist();
 
-    // upload vertex positions/colors
-    Mesh mesh;
-    {
-        // vertices
-        {
-            std::vector<Vec3> vertices;
-            vertices.reserve(drawlist.VtxBuffer.size());
-            for (const ImDrawVert& vert : drawlist.VtxBuffer) {
-                vertices.emplace_back(vert.pos.x, vert.pos.y, 0.0f);
-            }
-            mesh.set_vertices(vertices);
-        }
+    ImDrawData data;
+    data.Valid = true;
+    data.CmdListsCount = 1;
+    data.TotalIdxCount = drawlist.VtxBuffer.Size;
+    data.TotalIdxCount = drawlist.IdxBuffer.Size;
+    data.CmdLists.push_back(&drawlist);
+    data.DisplayPos = {0.0f, 0.0f};
+    data.DisplaySize = ImVec2{target.dimensions()};
+    data.FramebufferScale = ImGui::GetIO().DisplayFramebufferScale;
+    data.OwnerViewport = nullptr;
 
-        // colors
-        {
-            std::vector<Color> colors;
-            colors.reserve(drawlist.VtxBuffer.size());
-            for (const ImDrawVert& vert : drawlist.VtxBuffer) {
-                const Color linear_color = to_color(vert.col);
-                colors.push_back(linear_color);
-            }
-            mesh.set_colors(colors);
-        }
-    }
-
-    // solid color material
-    const Material material{Shader{
-        c_custom_ui_renderer_vertex_shader_src,
-        c_custom_ui_renderer_fragment_shader_src,
-    }};
-
-    Camera c;
-    c.set_view_matrix_override(identity<Mat4>());
-
-    {
-        // project screen-space overlays into NDC
-        const float L = 0.0f;
-        const float R = static_cast<float>(target.dimensions().x);
-        const float T = 0.0f;
-        const float B = static_cast<float>(target.dimensions().y);
-        const Mat4 proj = {
-            { 2.0f/(R-L),   0.0f,         0.0f,   0.0f },
-            { 0.0f,         2.0f/(T-B),   0.0f,   0.0f },
-            { 0.0f,         0.0f,        -1.0f,   0.0f },
-            { (R+L)/(L-R),  (T+B)/(B-T),  0.0f,   1.0f },
-        };
-        c.set_projection_matrix_override(proj);
-    }
-    c.set_clear_flags(CameraClearFlag::None);
-
-    for (const ImDrawCmd& cmd : drawlist.CmdBuffer) {
-        // upload indices
-        std::vector<ImDrawIdx> indices;
-        indices.reserve(cmd.ElemCount);
-        for (auto offset = cmd.IdxOffset; offset < cmd.IdxOffset + cmd.ElemCount; ++offset) {
-            indices.push_back(drawlist.IdxBuffer[static_cast<int>(offset)]);
-        }
-        mesh.set_indices(indices);
-
-        // draw mesh
-        graphics::draw(mesh, Transform{}, material, c);
-    }
-
-    c.render_to(target);
+    graphics_backend_render(&data, &target);
 }
 
 ui::DrawListView osc::ui::get_panel_draw_list()
@@ -3016,7 +2953,7 @@ void osc::ui::draw_image(
     Vec2 top_left_texture_coordinate,
     Vec2 bottom_right_texture_coordinate)
 {
-    const auto handle = ui::graphics_backend::allocate_texture_for_current_frame(texture);
+    const auto handle = graphics_backend_allocate_texture_for_current_frame(texture);
     ImGui::Image(handle, dimensions, top_left_texture_coordinate, bottom_right_texture_coordinate);
 }
 
@@ -3029,7 +2966,7 @@ void osc::ui::draw_image(const RenderTexture& texture, Vec2 dimensions)
 {
     const Vec2 uv0 = {0.0f, 1.0f};
     const Vec2 uv1 = {1.0f, 0.0f};
-    const auto handle = ui::graphics_backend::allocate_texture_for_current_frame(texture);
+    const auto handle = graphics_backend_allocate_texture_for_current_frame(texture);
     ImGui::Image(handle, dimensions, uv0, uv1);
 }
 
@@ -3059,7 +2996,7 @@ bool osc::ui::draw_image_button(
     Vec2 dimensions,
     const Rect& texture_coordinates)
 {
-    const auto handle = ui::graphics_backend::allocate_texture_for_current_frame(texture);
+    const auto handle = graphics_backend_allocate_texture_for_current_frame(texture);
     return ImGui::ImageButton(label.c_str(), handle, dimensions, texture_coordinates.p1, texture_coordinates.p2);
 }
 
@@ -3727,37 +3664,6 @@ bool osc::ui::draw_float_circular_slider(
 
 // gizmo stuff
 
-void osc::ui::gizmo_demo_draw_grid(
-    const Mat4& model_matrix,
-    const Mat4& view_matrix,
-    const Mat4& projection_matrix,
-    float grid_size,
-    const Rect& screenspace_rect)
-{
-    ImGuizmo::SetRect(
-        screenspace_rect.p1.x,
-        screenspace_rect.p1.y,
-        dimensions_of(screenspace_rect).x,
-        dimensions_of(screenspace_rect).y
-    );
-    ImGuizmo::DrawGrid(value_ptr(view_matrix), value_ptr(projection_matrix), value_ptr(model_matrix), grid_size);
-}
-
-void osc::ui::gizmo_demo_draw_cube(
-    Mat4& model_matrix,
-    const Mat4& view_matrix,
-    const Mat4& projection_matrix,
-    const Rect& screenspace_rect)
-{
-    ImGuizmo::SetRect(
-        screenspace_rect.p1.x,
-        screenspace_rect.p1.y,
-        dimensions_of(screenspace_rect).x,
-        dimensions_of(screenspace_rect).y
-    );
-    ImGuizmo::DrawCubes(value_ptr(view_matrix), value_ptr(projection_matrix), value_ptr(model_matrix), 1);
-}
-
 bool osc::ui::draw_gizmo_mode_selector(Gizmo& gizmo)
 {
     GizmoMode mode = gizmo.mode();
@@ -3911,7 +3817,7 @@ std::optional<Transform> osc::ui::Gizmo::draw_to(
 
     // important: necessary for multi-viewport gizmos
     // also important: don't use ui::get_id(), because it uses an ID stack and we might want to know if "isover" etc. is true outside of a window
-    ImGuizmo::PushID(static_cast<int>(std::hash<UID>{}(id_)));
+    ImGuizmo::PushID(id_);
     const ScopeExit g{[]{ ImGuizmo::PopID(); }};
 
     // update last-frame cache
@@ -3924,7 +3830,6 @@ std::optional<Transform> osc::ui::Gizmo::draw_to(
         dimensions_of(screenspace_rect).y
     );
     ImGuizmo::SetDrawlist(draw_list);
-    ImGuizmo::AllowAxisFlip(false);  // user's didn't like this feature in UX sessions
 
     // use rotation from the parent, translation from station
     Mat4 delta_matrix;
@@ -3944,29 +3849,13 @@ std::optional<Transform> osc::ui::Gizmo::draw_to(
     if (not gizmo_was_manipulated_by_user) {
         return std::nullopt;  // user is not interacting, so no changes to apply
     }
-    // else: figure out the local-space transform
 
-    // decompose the additional transformation into component parts
-    Vec3 world_translation{};
-    Vec3 world_rotation_in_degrees{};
-    Vec3 world_scale{};
-    ImGuizmo::DecomposeMatrixToComponents(
-        value_ptr(delta_matrix),
-        value_ptr(world_translation),
-        value_ptr(world_rotation_in_degrees),
-        value_ptr(world_scale)
-    );
-
-    return Transform{
-        .scale = world_scale,
-        .rotation = to_worldspace_rotation_quat(EulerAnglesIn<Degrees>{world_rotation_in_degrees}),
-        .position = world_translation,
-    };
+    return decompose_to_transform(delta_matrix);
 }
 
 bool osc::ui::Gizmo::is_using() const
 {
-    ImGuizmo::PushID(static_cast<int>(std::hash<UID>{}(id_)));
+    ImGuizmo::PushID(id_);
     const bool rv = ImGuizmo::IsUsing();
     ImGuizmo::PopID();
     return rv;
@@ -3974,7 +3863,7 @@ bool osc::ui::Gizmo::is_using() const
 
 bool osc::ui::Gizmo::is_over() const
 {
-    ImGuizmo::PushID(static_cast<int>(std::hash<UID>{}(id_)));
+    ImGuizmo::PushID(id_);
     const bool rv = ImGuizmo::IsOver();
     ImGuizmo::PopID();
     return rv;

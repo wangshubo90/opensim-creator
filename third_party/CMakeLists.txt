@@ -9,14 +9,12 @@ set(OSCDEPS_BUILD_SDL ON CACHE BOOL "enable building SDL from source")
 set(OSCDEPS_BUILD_TOMLPLUSPLUS ON CACHE BOOL "enable building tomlplusplus from source")
 set(OSCDEPS_BUILD_UNORDERED_DENSE ON CACHE BOOL "enable building unordered-dense from source")
 set(OSCDEPS_BUILD_GLAD ON CACHE BOOL "enable building glad from source")
-set(OSCDEPS_BUILD_NATIVEFILEDIALOG ON CACHE BOOL "enable building nativefiledialog from source")
 set(OSCDEPS_BUILD_IMGUI ON CACHE BOOL "enable building imgui from source")
 set(OSCDEPS_BUILD_IMPLOT ON CACHE BOOL "enable building implot from source")
 set(OSCDEPS_BUILD_OPENBLAS OFF CACHE BOOL "enable building OpenBLAS from source")
 set(OSCDEPS_BUILD_SPDLOG ON CACHE BOOL "enable building spdlog from source")
 set(OSCDEPS_BUILD_LIBOSIM ON CACHE BOOL "enable building libosim from source")
 set(OSCDEPS_BUILD_STB ON CACHE BOOL "enable building stb (headers)")
-set(OSCDEPS_BUILD_ROBIN_MAP ON CACHE BOOL "enable building robin map from source (used by nanobind)")
 set(OSCDEPS_BUILD_MDSPAN ON CACHE BOOL "enable building mdspan shim")
 set(OSCDEPS_BUILD_ALWAYS OFF CACHE BOOL "set BUILD_ALWAYS on all dependency targets, useful when editing dependencies")
 
@@ -47,6 +45,7 @@ if(TRUE)
         CMAKE_INSTALL_PREFIX
         CMAKE_TOOLCHAIN_FILE
         CMAKE_OSX_SYSROOT
+        CMAKE_SYSTEM_VERSION
         CMAKE_OSX_DEPLOYMENT_TARGET
         CMAKE_OSX_ARCHITECTURES
         CMAKE_POSITION_INDEPENDENT_CODE
@@ -95,9 +94,8 @@ if(${OSCDEPS_BUILD_SDL})
             -DSDL_INSTALL_CMAKEDIR:STRING=${CMAKE_INSTALL_LIBDIR}/cmake/SDL3
             -DSDL_SHARED:BOOL=OFF
             -DSDL_STATIC:BOOL=ON
-            -DSDL_JOYSTICK:BOOL=OFF
-            -DSDL_HAPTIC:BOOL=OFF
             -DSDL_TEST_LIBRARY:BOOL=OFF
+            -DSDL_PRESEED:BOOL=OFF  # https://github.com/libsdl-org/SDL/issues/11487#issuecomment-2487405649
     )
 endif()
 
@@ -122,15 +120,6 @@ endif()
 if(${OSCDEPS_BUILD_GLAD})
     ExternalProject_Add(glad
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/glad
-        BUILD_ALWAYS ${OSCDEPS_BUILD_ALWAYS}
-        CMAKE_CACHE_ARGS
-            ${OSCDEPS_DEPENDENCY_CMAKE_ARGS}
-    )
-endif()
-
-if(${OSCDEPS_BUILD_NATIVEFILEDIALOG})
-    ExternalProject_Add(nativefiledialog
-        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/nativefiledialog
         BUILD_ALWAYS ${OSCDEPS_BUILD_ALWAYS}
         CMAKE_CACHE_ARGS
             ${OSCDEPS_DEPENDENCY_CMAKE_ARGS}
@@ -198,10 +187,10 @@ if(${OSCDEPS_BUILD_LIBOSIM})
     ExternalProject_Add(libosim
         DEPENDS ${OSCDEPS_LIBOSIM_DEPS}
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libosim
-	BUILD_ALWAYS ${OSCDEPS_BUILD_ALWAYS}
+        BUILD_ALWAYS ${OSCDEPS_BUILD_ALWAYS}
         CMAKE_CACHE_ARGS
             ${OSCDEPS_DEPENDENCY_CMAKE_ARGS}
-	    -DOSIM_INSTALL_OPENSIM_HEADERS:BOOL=1
+            -DOSIM_INSTALL_OPENSIM_HEADERS:BOOL=1
             -DCMAKE_PREFIX_PATH:PATH=${CMAKE_INSTALL_PREFIX}
     )
 endif()
@@ -209,15 +198,6 @@ endif()
 if (${OSCDEPS_BUILD_STB})
     ExternalProject_Add(stb
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/stb
-        CMAKE_CACHE_ARGS
-            ${OSCDEPS_DEPENDENCY_CMAKE_ARGS}
-    )
-endif()
-
-if(${OSCDEPS_BUILD_ROBIN_MAP})
-    ExternalProject_Add(robin-map
-        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/robin-map
-        BUILD_ALWAYS ${OSCDEPS_BUILD_ALWAYS}
         CMAKE_CACHE_ARGS
             ${OSCDEPS_DEPENDENCY_CMAKE_ARGS}
     )

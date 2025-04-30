@@ -1,5 +1,6 @@
 #include "MainMenu.h"
 
+#include <libopensimcreator/Documents/FileFilters.h>
 #include <libopensimcreator/Documents/Model/UndoableModelActions.h>
 #include <libopensimcreator/Documents/Model/UndoableModelStatePair.h>
 #include <libopensimcreator/Documents/Simulation/Simulation.h>
@@ -15,6 +16,7 @@
 #include <liboscar/Graphics/Scene/SceneCache.h>
 #include <liboscar/Platform/App.h>
 #include <liboscar/Platform/AppMetadata.h>
+#include <liboscar/Platform/FileDialogFilter.h>
 #include <liboscar/Platform/IconCodepoints.h>
 #include <liboscar/Platform/Log.h>
 #include <liboscar/Platform/os.h>
@@ -38,6 +40,56 @@
 #include <utility>
 
 namespace rgs = std::ranges;
+using namespace osc;
+
+namespace
+{
+    void LoadMotionAgainstModel(const std::shared_ptr<IModelStatePair>& model, Widget* parent)
+    {
+        if (not model) {
+            return;  // Nothing to load the motion against.
+        }
+
+        if (not parent) {
+            return;  // Nothing to post the "open motion tab" event to.
+        }
+
+        // Asynchronously ask the user to select a motion file and then load the motion
+        // file against the model and show the result in a new tab.
+        App::upd().prompt_user_to_select_file_async(
+            [model, parent_ref = parent->weak_ref()](const FileDialogResponse& response)
+            {
+                if (response.size() != 1) {
+                    return;  // Error or user somehow selected too many files.
+                }
+
+                if (parent_ref.expired()) {
+                    log_error("Parent widget was destroyed while the user was selecting a file");
+                    return;
+                }
+
+                try {
+                    std::unique_ptr<OpenSim::Model> cpy = std::make_unique<OpenSim::Model>(model->getModel());
+                    InitializeModel(*cpy);
+                    InitializeState(*cpy);
+
+                    auto simulation = std::make_shared<Simulation>(
+                        StoFileSimulation{std::move(cpy),
+                        response.front(),
+                        model->getFixupScaleFactor(),
+                        model->tryUpdEnvironment()
+                    });
+                    auto tab = std::make_unique<SimulationTab>(parent_ref.get(), simulation);
+                    App::post_event<OpenTabEvent>(*parent_ref, std::move(tab));
+                }
+                catch (const std::exception& ex) {
+                    log_error("encountered error while trying to load an STO file against the model: %s", ex.what());
+                }
+            },
+            GetMotionFileFilters()
+        );
+    }
+}
 
 osc::MainMenuFileTab::MainMenuFileTab(Widget* parent) :
     Widget{parent},
@@ -52,9 +104,9 @@ osc::MainMenuFileTab::MainMenuFileTab(Widget* parent) :
     rgs::sort(exampleOsimFiles, is_filename_lexicographically_greater_than);
 }
 
-void osc::MainMenuFileTab::onDraw(IModelStatePair* maybeModel)
+void osc::MainMenuFileTab::onDraw(std::shared_ptr<IModelStatePair> maybeModel)  // NOLINT(performance-unnecessary-value-param)
 {
-    auto* undoableModel = dynamic_cast<UndoableModelStatePair*>(maybeModel);
+    auto undoableModel = std::dynamic_pointer_cast<UndoableModelStatePair>(maybeModel);
 
     // handle hotkeys enabled by just drawing the menu
     {
@@ -71,10 +123,10 @@ void osc::MainMenuFileTab::onDraw(IModelStatePair* maybeModel)
             }
         }
         else if (undoableModel and mod and ui::is_shift_down() and ui::is_key_pressed(Key::S)) {
-            ActionSaveCurrentModelAs(*undoableModel);
+            ActionSaveCurrentModelAs(undoableModel);
         }
         else if (undoableModel and mod and ui::is_key_pressed(Key::S)) {
-            ActionSaveModel(*undoableModel);
+            ActionSaveModelAsync(undoableModel);
         }
         else if (undoableModel and ui::is_key_pressed(Key::F5)) {
             ActionReloadOsimFromDisk(*undoableModel, *App::singleton<SceneCache>());
@@ -132,39 +184,20 @@ void osc::MainMenuFileTab::onDraw(IModelStatePair* maybeModel)
     ui::draw_separator();
 
     if (ui::draw_menu_item(OSC_ICON_FOLDER_OPEN " Load Motion", {}, false, maybeModel != nullptr)) {
-        std::optional<std::filesystem::path> maybePath = prompt_user_to_select_file({"sto", "mot"});
-        if (maybePath and maybeModel and parent()) {
-            try {
-                std::unique_ptr<OpenSim::Model> cpy = std::make_unique<OpenSim::Model>(maybeModel->getModel());
-                InitializeModel(*cpy);
-                InitializeState(*cpy);
-
-                auto simulation = std::make_shared<Simulation>(
-                    StoFileSimulation{std::move(cpy),
-                    *maybePath,
-                    maybeModel->getFixupScaleFactor(),
-                    maybeModel->tryUpdEnvironment()
-                });
-                auto tab = std::make_unique<SimulationTab>(parent(), simulation);
-                App::post_event<OpenTabEvent>(*parent(), std::move(tab));
-            }
-            catch (const std::exception& ex) {
-                log_error("encountered error while trying to load an STO file against the model: %s", ex.what());
-            }
-        }
+        LoadMotionAgainstModel(maybeModel, parent());
     }
 
     ui::draw_separator();
 
     if (ui::draw_menu_item(OSC_ICON_SAVE " Save", KeyModifier::Ctrl | Key::S, false, undoableModel != nullptr)) {
         if (undoableModel) {
-            ActionSaveModel(*undoableModel);
+            ActionSaveModelAsync(undoableModel);
         }
     }
 
     if (ui::draw_menu_item(OSC_ICON_SAVE " Save As", KeyModifier::Ctrl | KeyModifier::Shift | Key::S, false, undoableModel != nullptr)) {
         if (undoableModel) {
-            ActionSaveCurrentModelAs(*undoableModel);
+            ActionSaveCurrentModelAs(undoableModel);
         }
     }
 

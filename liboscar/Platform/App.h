@@ -33,6 +33,7 @@ namespace osc { class AppMetadata; }
 namespace osc { class AppSettings; }
 namespace osc { class Cursor; }
 namespace osc { class Event; }
+namespace osc { class FileDialogResponse; }
 namespace osc { class Screen; }
 namespace osc { class Widget; }
 
@@ -234,27 +235,39 @@ namespace osc
         // able to process all events.
         void request_invoke_on_main_thread(std::function<void()>);
 
-        // Prompts a user to select file(s), followed by calling `callback` from the ui thread
-        // with the user's selection.
+        // Gets/sets the directory that should be shown to the user if a call to one of the
+        // `prompt_user*` files does not provide an `initial_directory_to_show`. If this
+        // fallback isn't provided, the implementation will fallback to whatever the
+        // OS's default behavior is (typically, it remembers the user's last usage).
         //
-        // - `callback` is called by the implementation when the user chooses a file, cancels,
-        //   or there's an error. It is not called if the application quits/destructs before
-        //   those happen (related: `request_invoke_on_ui_thread`).
+        // This fallback is activated until a call to `prompt_user*` is made without the
+        // user cancelling out of the dialog (i.e. if the user cancels then this fallback
+        // will remain in-place).
+        std::optional<std::filesystem::path> get_initial_directory_to_show_fallback();
+        void set_initial_directory_to_show_fallback(const std::filesystem::path&);
+        void set_initial_directory_to_show_fallback(std::nullopt_t);  // reset it
+
+        // Prompts the user to select file(s) that they would like to open.
         //
-        // - `filters` should be a sequence of permitted `FileDialogFilter`s, and will constrain
+        // - `callback` is called from the ui thread by the implementation when the user chooses
+        //   a file, cancels, or there's an error. It is implementation-defined whether `callback`
+        //   is called immeditately or as part of pumping the application event loop. `callback`
+        //   may not be called if the application quits/destructs prematurely.
+        //
+        // - `filters` should be a sequence of permitted `FileDialogFilter`s, which will constrain
         //   which files the user can select in the dialog in an implementation-defined way.
         //
         // - `initial_directory_to_show` should be a filesystem path to a directory that should
         //   initially be shown to the user. If it isn't provided, then an implementation-defined
         //   directory will be shown (e.g. based on previous user choices, OS defaults, etc.).
         void prompt_user_to_select_file_async(
-            std::function<void(FileDialogResponse)> callback,
+            std::function<void(FileDialogResponse&&)> callback,
             std::span<const FileDialogFilter> filters = {},
             std::optional<std::filesystem::path> initial_directory_to_show = std::nullopt,
             bool allow_many = false
         );
         inline void prompt_user_to_select_file_async(
-            std::function<void(FileDialogResponse)> callback,
+            std::function<void(FileDialogResponse&&)> callback,
             std::initializer_list<const FileDialogFilter> filters = {},
             std::optional<std::filesystem::path> initial_directory_to_show = std::nullopt,
             bool allow_many = false)
@@ -266,6 +279,56 @@ namespace osc
                 allow_many
             );
         }
+
+        // Prompts the user to select a new or existing filesystem path where they would like
+        // to save a file.
+        //
+        // - `callback` is called from the ui thread by the implementation when the user chooses
+        //   a file, cancels or there's an error. It is implementation-defined whether `callback` is
+        //   called  immediately, or as part of pumping the application event loop. `callback` may
+        //   not be called if the application quits/destructs prematurely.
+        //
+        // - `filters` should be a sequence of permitted `FileDialogFilter`s, which will constrain
+        //   which file extensions the user can use in the dialog in an implementation-defined way.
+        //
+        // - `initial_directory_to_show` should be a filesystem path to a directory that should
+        //   initially be shown to the user. If it isn't provided, then an implementation-defined
+        //   directory will be shown (e.g. based on previous user choices, OS defaults, etc.).
+        void prompt_user_to_save_file_async(
+            std::function<void(FileDialogResponse&&)> callback,
+            std::span<const FileDialogFilter> filters = {},
+            std::optional<std::filesystem::path> initial_directory_to_show = std::nullopt
+        );
+        inline void prompt_user_to_save_file_async(
+            std::function<void(FileDialogResponse&&)> callback,
+            std::initializer_list<const FileDialogFilter> filters = {},
+            std::optional<std::filesystem::path> initial_directory_to_show = std::nullopt)
+        {
+            return prompt_user_to_save_file_async(
+                std::move(callback),
+                std::span{filters},
+                std::move(initial_directory_to_show)
+            );
+        }
+
+        // Prompts a user to select a new or existing filesystem path where they would like
+        // to save the file, with the option to file to have a specific extension - even if the
+        // user types a filename without the extension into the dialog.
+        //
+        // - `callback` is called when either the user selects a file or cancels out of the dialog.
+        //   If provided, the given path will always end with the specified extension. `std::nullopt`
+        //   is sent through the callback when the user cancels out of the dialog.
+        //
+        // - `maybe_extension` can be `std::nullopt`, meaning "don't filter by extension", or a single
+        //   extension (e.g. "blend").
+        //
+        // - `maybe_initial_directory_to_open` can be `std::nullopt`, meaning "use a system-defined default"
+        //   or a directory to initially show to the user when the prompt opens.
+        void prompt_user_to_save_file_with_extension_async(
+            std::function<void(std::optional<std::filesystem::path>)> callback,
+            std::optional<std::string_view> maybe_extension = std::nullopt,
+            std::optional<std::filesystem::path> initial_directory_to_show = std::nullopt
+        );
 
         // returns a sequence of all physical monitors associated with the windowing system that
         // this `App` is connected to.

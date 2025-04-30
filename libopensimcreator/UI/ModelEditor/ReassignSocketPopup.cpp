@@ -59,16 +59,14 @@ namespace
         explicit ConnecteeOption(const OpenSim::Component& c) :
             absPath{GetAbsolutePath(c)},
             name{c.getName()}
-        {
-        }
+        {}
 
         friend auto operator<=>(const ConnecteeOption& lhs, const ConnecteeOption& rhs)
         {
             return std::tie(lhs.name, lhs.absPath.toString()) <=> std::tie(rhs.name, rhs.absPath.toString());
         }
 
-        [[maybe_unused]]  // TODO: Ubuntu20 doesn't use this function
-        friend bool operator==(const ConnecteeOption& lhs, const ConnecteeOption& rhs)
+        [[maybe_unused]] friend bool operator==(const ConnecteeOption& lhs, const ConnecteeOption& rhs)
         {
             return std::tie(lhs.name, lhs.absPath.toString()) == std::tie(rhs.name, rhs.absPath.toString());
         }
