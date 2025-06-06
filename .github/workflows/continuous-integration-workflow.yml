@@ -1,11 +1,17 @@
 on: [push]
 
 env:
+  # Bake a build ID into the binary so that there's a way of looking up
+  # the build logs for a build.
   OSC_BUILD_ID: "GITHUB_${{ github.run_id }}.${{ github.run_number }}"
+
+  # Hide window creation in CI, because CI runners typically do not have
+  # a desktop environment.
+  OSC_INTERNAL_HIDE_WINDOW: "1"
 
 jobs:
 
-  windows2022msvc:
+  windows10_msvc_amd64:
     name: Windows 2022 (amd64, MSVC)
     runs-on: windows-2022
     steps:
@@ -18,17 +24,19 @@ jobs:
 
         # --system-version is necessary with GitHub's `windows-2022` runner because the
         # default SDK doesn't include `gameinput.h` correctly (see: https://github.com/actions/runner-images/issues/10980)
-        python scripts\\build_windows.py --system-version=10.0.26100.0 -j2 || exit /b
+        #
+        # the specified SDK supports Windows 10, version 1507 or higher (developer.microsoft.com/en-us/windows/downloads/windows-sdk/)
+        python scripts\\build_windows.py --system-version=10.0.26100.0 || exit /b
 
     - uses: actions/upload-artifact@v4
       with:
         name: opensimcreator-windows-amd64.zip
-        path: osc-build/*windows-amd64.exe
+        path: build/*windows-amd64.exe
         if-no-files-found: error
 
-  macos11clang:
-    name: MacOS 13 (amd64, XCode 15.2, targeting 14.2)
-    runs-on: macos-13
+  macos14_xcode15-4_targeting14-5_amd64:
+    name: MacOS 14 (amd64, XCode 15.4, targeting 14.5)
+    runs-on: macos-14
     steps:
 
     - uses: actions/checkout@v4
@@ -37,20 +45,50 @@ jobs:
       run: |
         cd $GITHUB_WORKSPACE
 
+        # configure buildscript
+        export OSC_CMAKE_CONFIG_EXTRA="-DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=14.5"
+
         # run buildscript
-        ./scripts/build_mac-amd64.sh
+        ./scripts/build_mac.sh
 
         # run after-build OS-specific test scripts
-        ./scripts/macos_check-dependencies.py osc-build/osc/osc
-        ./scripts/macos_check-sdk.py 14.2 osc-build/osc/osc
+        ./scripts/macos_check-dependencies.py build/osc/osc
+        ./scripts/macos_check-sdk.py 14.5 build/osc/osc
 
     - uses: actions/upload-artifact@v4
       with:
         name: opensimcreator-macos-amd64.zip
-        path: osc-build/*.dmg
+        path: build/*.dmg
         if-no-files-found: error
 
-  ubuntu2204gcc:
+  macos14_xcode15-4_targeting14-5_arm64:
+    name: MacOS 14 (arm64, XCode 15.4, targeting 14.5)
+    runs-on: macos-14
+    steps:
+
+    - uses: actions/checkout@v4
+
+    - name: run build script
+      run: |
+        cd $GITHUB_WORKSPACE
+
+        # configure buildscript
+        export OSC_CMAKE_CONFIG_EXTRA="-DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=14.5"
+
+        # run buildscript
+        ./scripts/build_mac.sh
+
+        # run after-build OS-specific test scripts
+        ./scripts/macos_check-dependencies.py build/osc/osc
+        ./scripts/macos_check-sdk.py 14.5 build/osc/osc
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: opensimcreator-macos-arm64.zip
+        path: build/*.dmg
+        if-no-files-found: error
+
+  ubuntu22-04_gcc-12_amd64:
     name: Ubuntu 22.04 (amd64, gcc-12)
     runs-on: ubuntu-22.04
     steps:
@@ -72,7 +110,6 @@ jobs:
 
     - uses: actions/upload-artifact@v4
       with:
-        name: OpenSimCreator_Deb.zip
-        path: osc-build/*.deb
+        name: opensimcreator-ubuntu22-arm64.zip
+        path: build/*.deb
         if-no-files-found: error
-

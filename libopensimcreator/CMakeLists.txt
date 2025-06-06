@@ -1,3 +1,5 @@
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/osc_strict_compiler_options.cmake)  # OSC_STRICT_COMPILER_OPTIONS
+
 set(
     OSC_BUILD_OSIM_INLINED OFF
     CACHE BOOL
@@ -6,12 +8,6 @@ set(
      Simbody/OpenSim as part of OpenSim Creator's integration"
 )
 mark_as_advanced(OSC_BUILD_OSIM_INLINED)
-set(
-    OSC_FIND_OSIM_PACKAGE_IF_NOT_INLINED ON
-    CACHE BOOL
-    "Enable/disable calling `find_package(osim)` if osim is not being built inline"
-)
-mark_as_advanced(OSC_FIND_OSIM_PACKAGE_IF_NOT_INLINED)
 
 if(${OSC_BUILD_OSIM_INLINED})
     add_subdirectory(
@@ -23,7 +19,7 @@ if(${OSC_BUILD_OSIM_INLINED})
     # ensure linting doesn't happen for OpenSim/Simbody sources
     set_property(TARGET osim PROPERTY CXX_CLANG_TIDY)
     set_property(TARGET osim PROPERTY C_CLANG_TIDY)
-elseif(${OSC_FIND_OSIM_PACKAGE_IF_NOT_INLINED})
+elseif(NOT TARGET osim)
     find_package(osim REQUIRED)
 endif()
 
@@ -40,13 +36,12 @@ set_target_properties(OpenSimCreator PROPERTIES
     CXX_EXTENSIONS OFF
 )
 target_compile_features(OpenSimCreator PUBLIC
-    cxx_std_20
+    cxx_std_23
 )
-include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/osc_strict_compiler_options.cmake)
 target_compile_options(OpenSimCreator
 PUBLIC
     # gcc/clang
-    $<$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>>:
+    $<$<OR:$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>>:
         # disable extra-semicolon detection: broken by OpenSim_DECLARE_ macros (see: opensim-core/3496)
         -Wno-extra-semi
     >

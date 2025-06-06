@@ -10,8 +10,8 @@
 #include <liboscar/Graphics/Texture2D.h>
 #include <liboscar/Graphics/TextureFormat.h>
 #include <liboscar/Maths/CollisionTests.h>
-#include <liboscar/Maths/MatFunctions.h>
 #include <liboscar/Maths/Mat4.h>
+#include <liboscar/Maths/MatFunctions.h>
 #include <liboscar/Maths/MathHelpers.h>
 #include <liboscar/Maths/Rect.h>
 #include <liboscar/Maths/RectFunctions.h>
@@ -19,11 +19,11 @@
 #include <liboscar/Maths/Vec3.h>
 #include <liboscar/Maths/Vec4.h>
 #include <liboscar/Platform/App.h>
-#include <liboscar/Platform/IconCodepoints.h>
 #include <liboscar/Platform/os.h>
 #include <liboscar/Platform/Screenshot.h>
 #include <liboscar/UI/oscimgui.h>
 #include <liboscar/UI/Tabs/TabPrivate.h>
+#include <liboscar/Utils/EnumHelpers.h>
 
 #include <filesystem>
 #include <fstream>
@@ -74,12 +74,14 @@ namespace
             target_rect.p1 + scale*(rect.p2 - source_rect.p1),
         };
     }
+
+    enum class ScreenshotFileFormat { png, jpeg, NUM_OPTIONS };
 }
 
 class osc::ScreenshotTab::Impl final : public TabPrivate {
 public:
     explicit Impl(ScreenshotTab& owner, Widget* parent, Screenshot&& screenshot) :
-        TabPrivate{owner, parent, OSC_ICON_COOKIE " ScreenshotTab"},
+        TabPrivate{owner, parent, "Screenshot"},
         screenshot_{std::move(screenshot)}
     {
         image_texture_.set_filter_mode(TextureFilterMode::Mipmap);
@@ -88,9 +90,13 @@ public:
     void on_draw_main_menu()
     {
         if (ui::begin_menu("File")) {
-            if (ui::draw_menu_item("Save")) {
-                action_try_save_annotated_screenshot();
+            if (ui::draw_menu_item("Save PNG")) {
+                action_try_save_annotated_screenshot(ScreenshotFileFormat::png);
             }
+            if (ui::draw_menu_item("Save JPEG")) {
+                action_try_save_annotated_screenshot(ScreenshotFileFormat::jpeg);
+            }
+            ui::draw_float_circular_slider("JPEG quality", &jpeg_quality_level_, 0.0f, 1.0f);
             ui::end_menu();
         }
     }
@@ -115,6 +121,17 @@ public:
         {
             int id = 0;
             ui::begin_panel("Controls");
+
+            // show editor for setting window size
+            {
+                Vec2 s = App::get().main_window_dimensions();
+                ui::draw_text("%f %f", s.x, s.y);
+                if (ui::draw_button("change")) {
+                    App::upd().try_async_set_main_window_dimensions({1920.0f, 1080.0f});
+                }
+            }
+
+            // list each annotation
             for (const ScreenshotAnnotation& annotation : screenshot_.annotations()) {
                 ui::push_id(id++);
                 ui::draw_text(annotation.label());
@@ -174,9 +191,9 @@ private:
         }
     }
 
-    void action_try_save_annotated_screenshot()
+    void action_try_save_annotated_screenshot(ScreenshotFileFormat format)
     {
-        App::upd().prompt_user_to_save_file_with_extension_async([screenshot = render_annotated_screenshot()](std::optional<std::filesystem::path> p)
+        App::upd().prompt_user_to_save_file_with_extension_async([format, screenshot = render_annotated_screenshot()](std::optional<std::filesystem::path> p)
         {
             if (not p) {
                 return;  // User cancelled out.
@@ -186,9 +203,14 @@ private:
             if (not fout) {
                 throw std::runtime_error{p->string() + ": cannot open for writing"};
             }
-            write_to_png(screenshot, fout);
+            switch (format) {
+            case ScreenshotFileFormat::jpeg: write_to_jpeg(screenshot, fout); break;
+            case ScreenshotFileFormat::png:  write_to_png(screenshot, fout);  break;
+            default:                         std::unreachable();
+            }
             open_file_in_os_default_application(*p);
-        }, "png");
+        }, format == ScreenshotFileFormat::jpeg ? "jpeg" : "png");
+        static_assert(num_options<ScreenshotFileFormat>() == 2);
     }
 
     Texture2D render_annotated_screenshot()
@@ -221,6 +243,7 @@ private:
     Screenshot screenshot_;
     Texture2D image_texture_ = screenshot_.image();
     std::unordered_set<std::string> user_selected_annotations_;
+    float jpeg_quality_level_ = 0.7f;
 };
 
 osc::ScreenshotTab::ScreenshotTab(Widget* parent, Screenshot&& screenshot) :

@@ -24,7 +24,7 @@ def _run_cmake_configure(source_dir, binary_dir, generator, architecture, cache_
 
 def _run_cmake_build(binary_dir, config, concurrency, target=None):
     maybe_target_flag = f'--target {target}' if target else ''
-    _run(f'cmake --build {binary_dir} --config {config} -j{concurrency} {maybe_target_flag}')
+    _run(f'cmake --build {binary_dir} --verbose --config {config} -j{concurrency} {maybe_target_flag}')
 
 def _log_dir_contents(path: str):
     logging.info(f"listing {path}")
@@ -60,13 +60,14 @@ class BuildConfiguration:
         return pprint.pformat(vars(self))
 
     def get_dependencies_build_dir(self):
-        return os.path.join(self.build_dir, "osc-dependencies-build")
+        return os.path.join(self.build_dir, "third_party-build")
 
     def get_dependencies_install_dir(self):
-        return os.path.join(self.build_dir, "osc-dependencies-install")
+        return os.path.join(self.build_dir, "third_party-install")
 
     def get_osc_build_dir(self):
-        return os.path.join(self.build_dir, "osc-build")
+        # note: clangd usually expects that the build directory is located at `build/`
+        return os.path.join(self.build_dir, "build")
 
     def get_osc_deps_build_type(self):
         return self.osc_deps_build_type or self.base_build_type

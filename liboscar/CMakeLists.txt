@@ -1,3 +1,5 @@
+include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/osc_strict_compiler_options.cmake)  # OSC_STRICT_COMPILER_OPTIONS
+
 set(
     OSC_FORCE_ASSERTS_ENABLED ON
     CACHE BOOL
@@ -36,7 +38,6 @@ file(GLOB_RECURSE OSC_SOURCE_AND_HEADER_FILES
 )
 list(FILTER OSC_SOURCE_AND_HEADER_FILES EXCLUDE REGEX "testing")
 list(FILTER OSC_SOURCE_AND_HEADER_FILES EXCLUDE REGEX "\.tests\.cpp")
-list(FILTER OSC_SOURCE_AND_HEADER_FILES EXCLUDE REGEX "VariableLengthArray")  # hacked out: can't compile on MacOS yet
 
 add_library(oscar STATIC
     ${OSC_SOURCE_AND_HEADER_FILES}
@@ -45,9 +46,8 @@ set_target_properties(oscar PROPERTIES
     CXX_EXTENSIONS OFF
 )
 target_compile_features(oscar PUBLIC
-    cxx_std_20
+    cxx_std_23
 )
-include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/osc_strict_compiler_options.cmake)
 target_compile_options(oscar PRIVATE
     ${OSC_STRICT_COMPILER_OPTIONS}
 )

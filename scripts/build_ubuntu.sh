@@ -25,7 +25,7 @@ OSC_BUILD_GENERATOR=${OSC_BUILD_GENERATOR-"Unix Makefiles"}
 #
 # defaulted to 1, rather than `nproc`, because OpenSim requires a large
 # amount of RAM--more than most machines have--to build concurrently, #659
-OSC_BUILD_CONCURRENCY=${OSC_BUILD_CONCURRENCY:-1}
+OSC_BUILD_CONCURRENCY=${OSC_BUILD_CONCURRENCY:-$(nproc)}
 
 # extra flags to pass into each configuration call to cmake
 #
@@ -66,25 +66,25 @@ echo "----- building OSC's dependencies -----"
 cmake \
     -G "${OSC_BUILD_GENERATOR}" \
     -S third_party \
-    -B "osc-deps-build" \
+    -B third_party-build \
     -DCMAKE_BUILD_TYPE=${OSC_DEPS_BUILD_TYPE} \
-    -DCMAKE_INSTALL_PREFIX="osc-deps-install"
+    -DCMAKE_INSTALL_PREFIX=third_party-install
     ${OSC_CMAKE_CONFIG_EXTRA}
-cmake --build "osc-deps-build" -j${OSC_BUILD_CONCURRENCY}
+cmake --build third_party-build --verbose -j${OSC_BUILD_CONCURRENCY}
 
 echo "----- building OSC -----"
 cmake \
     -G "${OSC_BUILD_GENERATOR}" \
     -S . \
-    -B "osc-build" \
+    -B "build/" \
     -DCMAKE_BUILD_TYPE=${OSC_BUILD_TYPE} \
-    -DCMAKE_PREFIX_PATH="${PWD}/osc-deps-install"
+    -DCMAKE_PREFIX_PATH="${PWD}/third_party-install"
     ${OSC_BUILD_DOCS:+-DOSC_BUILD_DOCS=ON} \
     ${OSC_CMAKE_CONFIG_EXTRA}
-cmake --build "osc-build" -j${OSC_BUILD_CONCURRENCY}
+cmake --build "build/" -j${OSC_BUILD_CONCURRENCY}
 
 # ensure tests pass
-ctest --test-dir osc-build -j ${OSC_BUILD_CONCURRENCY} --output-on-failure
+ctest --test-dir build/ -j ${OSC_BUILD_CONCURRENCY} --output-on-failure
 
 # build final package
-cmake --build "osc-build" --target ${OSC_BUILD_TARGET} -j${OSC_BUILD_CONCURRENCY}
+cmake --build "build/" --target ${OSC_BUILD_TARGET} -j${OSC_BUILD_CONCURRENCY}

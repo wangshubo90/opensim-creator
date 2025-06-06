@@ -21,8 +21,8 @@
 
 OpenSim Creator (`osc`) is a standalone UI for building and editing
 [OpenSim](https://github.com/opensim-org/opensim-core) models. It's available
-as a freestanding all-in-one [installer](../../releases/latest) for Windows 10,
-MacOS (>= v14, Sonoma), and Ubuntu (>= 22.04, Jammy Jellyfish).
+as a freestanding all-in-one [installer](../../releases/latest) for Windows 10 (>= 1507),
+MacOS (>= 14.5, Sonoma), and Ubuntu (>= 22.04, Jammy Jellyfish).
 
 `osc` started development in 2021 in the [Biomechanical Engineering](https://www.tudelft.nl/3me/over/afdelingen/biomechanical-engineering)
 department at [TU Delft](https://www.tudelft.nl/). Architecturally, `osc` is a C++ codebase
@@ -37,14 +37,34 @@ fairly easy to build, integrate, and package.
 
 OpenSim Creator doesn't have a central _written_ software publication that you can cite (yet 😉). However, if you _need_ to directly cite OpenSim Creator (e.g. because you think it's relevant that you built a model with it), the closest thing you can use is our DOI-ed Zenodo releases (metadata available in this repo: `CITATION.cff`/`codemeta.json`):
 
-> Kewley, A., Beesel, J., & Seth, A. (2025). OpenSim Creator (0.5.22). Zenodo. https://doi.org/10.5281/zenodo.15282275
+> Kewley, A., Beesel, J., & Seth, A. (2025). OpenSim Creator (0.5.23). Zenodo. https://doi.org/10.5281/zenodo.15525321
 
 If you need a general citation for the simulation/modelling technique, you can directly cite OpenSim via this paper:
 
 > Seth A, Hicks JL, Uchida TK, Habib A, Dembia CL, et al. (2018) **OpenSim: Simulating musculoskeletal dynamics and neuromuscular control to study human and animal movement.** _PLOS Computational Biology_ 14(7): e1006223. https://doi.org/10.1371/journal.pcbi.1006223
 
 
-# ❤️ Acknowledgements
+## 🌲Sustainability, Archiving, and Mirrors
+
+We have taken the following steps to ensure that you can always access, build, and use
+every release of OpenSim Creator:
+
+- OSC's central repository is public access and hosted at https://github.com/ComputationalBiomechanicsLab/opensim-creator
+- During a release, we:
+  - Mirror the central repository to https://gitlab.tudelft.nl/computationalbiomechanicslab/opensim-creator
+  - Upload a snapshot of the release's source code to Zenodo (see citing section, above).
+  - Upload a snapshot of the release's source code and binaries to https://files.opensimcreator.com/releases/
+- Each release of OSC's source code is permissively licensed, verified to be compile-able via
+  `gcc`, `clang`, and MSVC with many warnings/lints enabled to ensure the source code has a
+  strong chance of being compile-able far in the future as architectures, operating systems, and
+  compilers evolve.
+- The project includes all of its library dependencies in-tree. It doesn't use git submodules, internet
+  downloads, or package managers. This means that everything that's needed to build OpenSimCreator
+  (apart from widely-available compiler toolchains) is available in this repository and not dependent
+  on external services that might change over time.
+
+
+## ❤️ Acknowledgements
 
 We would like to thank the [Chan Zuckerberg Initiative](https://chanzuckerberg.com/) which
 currently funds OpenSim Creator's development through the "Essential Open Source Software

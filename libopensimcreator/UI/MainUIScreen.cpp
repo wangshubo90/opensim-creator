@@ -1,5 +1,6 @@
 #include "MainUIScreen.h"
 
+#include <libopensimcreator/Platform/IconCodepoints.h>
 #include <libopensimcreator/UI/Events/OpenFileEvent.h>
 #include <libopensimcreator/UI/LoadingTab.h>
 #include <libopensimcreator/UI/MeshImporter/MeshImporterTab.h>
@@ -11,7 +12,6 @@
 #include <liboscar/Platform/Events/DropFileEvent.h>
 #include <liboscar/Platform/Events/Event.h>
 #include <liboscar/Platform/Events/KeyEvent.h>
-#include <liboscar/Platform/IconCodepoints.h>
 #include <liboscar/Platform/Log.h>
 #include <liboscar/Platform/os.h>
 #include <liboscar/Platform/ScreenPrivate.h>
@@ -114,12 +114,8 @@ public:
 
     bool onUnhandledKeyUp(const KeyEvent& e)
     {
-        if (e.combination() == (KeyModifier::Ctrl | Key::P)) {
-            // `Ctrl+P`: "take a screenshot"
-            m_MaybeScreenshotRequest = App::upd().request_screenshot();
-            return true;
-        }
-        if (e.combination() == (KeyModifier::Ctrl | Key::PageUp) or e.combination() == (KeyModifier::Ctrl | KeyModifier::Alt | Key::LeftArrow)) {
+        if (e.combination() == (KeyModifier::Ctrl | Key::PageUp) or
+            e.combination() == (KeyModifier::Ctrl | KeyModifier::Alt | Key::LeftArrow)) {
             // `Ctrl+PageUp` or `Ctrl+Alt+Left`: focus the tab to the left of the currently-active tab
             auto it = findTabByID(m_ActiveTabID);
             if (it != m_Tabs.begin() and it != m_Tabs.end()) {
@@ -128,7 +124,8 @@ public:
             }
             return true;
         }
-        if (e.combination() == (KeyModifier::Ctrl | Key::PageDown) or e.combination() == (KeyModifier::Ctrl | KeyModifier::Alt | Key::RightArrow)) {
+        if (e.combination() == (KeyModifier::Ctrl | Key::PageDown) or
+            e.combination() == (KeyModifier::Ctrl | KeyModifier::Alt | Key::RightArrow)) {
             // `Ctrl+PageDown` or `Ctrl+Alt+Right`: focus the tab to the right of the currently-active tab
             auto it = findTabByID(m_ActiveTabID);
             if (it != m_Tabs.end()-1) {
@@ -186,8 +183,6 @@ public:
                 m_RequestedTab = m_Tabs.back()->id();
             }
         }
-
-        ui::context::init(App::upd());
     }
 
     void on_unmount()
@@ -207,8 +202,6 @@ public:
 
             m_ActiveTabID = UID::empty();
         }
-
-        ui::context::shutdown(App::upd());
     }
 
     bool on_event(Event& e)
@@ -228,10 +221,14 @@ public:
 
         bool handled = false;
 
-        if (ui::context::on_event(e)) {
+        if (e.type() == EventType::KeyUp and dynamic_cast<const KeyEvent&>(e).combination() == (KeyModifier::Ctrl | Key::P)) {
+            // `Ctrl+P`: "take a screenshot"
+            m_MaybeScreenshotRequest = App::upd().request_screenshot();
+            handled = true;
+        }
+        else if (m_UiContext.on_event(e)) {
             // if the 2D UI captured the event, then assume that the event will be "handled"
             // during `Tab::onDraw` (immediate-mode UI)
-
             App::upd().request_redraw();
             handled = true;
         }
@@ -321,7 +318,7 @@ public:
             if (activeTabHandledEvent) {
                 // If the user dragged a file into an open tab, and the tab accepted the
                 // event (e.g. because it opened/imported the file), then the directory
-                // of the droppped file should become the next directory that the user sees
+                // of the dropped file should become the next directory that the user sees
                 // if they subsequently open a file dialog.
                 //
                 // The reason that users find this useful is because they might've just
@@ -337,12 +334,9 @@ public:
                 App::upd().request_redraw();
                 handled = true;
             }
-            else {
-                handled = onUnhandledEvent(e);
-            }
         }
 
-        return handled;
+        return handled or onUnhandledEvent(e);
     }
 
     void on_tick()
@@ -382,30 +376,29 @@ public:
             App::upd().clear_screen();
         }
 
-        ui::context::on_start_new_frame(App::upd());
+        m_UiContext.on_start_new_frame();
 
         {
             OSC_PERF("MainUIScreen/drawUIContent");
             drawUIContent();
         }
 
-        if (m_ImguiWasAggressivelyReset) {
+        if (m_UiWasAggressivelyReset) {
             if (m_RequestedTab == UID::empty()) {
                 m_RequestedTab = m_ActiveTabID;
             }
             m_ActiveTabID = UID::empty();
 
-            ui::context::shutdown(App::upd());
-            ui::context::init(App::upd());
+            m_UiContext.reset();
             App::upd().request_redraw();
-            m_ImguiWasAggressivelyReset = false;
+            m_UiWasAggressivelyReset = false;
 
             return;
         }
 
         {
-            OSC_PERF("MainUIScreen/ui::context::render()");
-            ui::context::render();
+            OSC_PERF("MainUIScreen/render()");
+            m_UiContext.render();
         }
     }
 
@@ -430,7 +423,7 @@ public:
                         impl_close_tab(m_ActiveTabID);
                     }
 
-                    if (m_ImguiWasAggressivelyReset) {
+                    if (m_UiWasAggressivelyReset) {
                         return;  // must return here to prevent the ImGui end_panel calls from erroring
                     }
                 }
@@ -490,7 +483,7 @@ public:
                                 m_RequestedTab = UID::empty();
                             }
 
-                            if (m_ImguiWasAggressivelyReset) {
+                            if (m_UiWasAggressivelyReset) {
                                 return;
                             }
 
@@ -526,13 +519,13 @@ public:
     {
         drawTabSpecificMenu();
 
-        if (m_ImguiWasAggressivelyReset) {
+        if (m_UiWasAggressivelyReset) {
             return;
         }
 
         drawTabBar();
 
-        if (m_ImguiWasAggressivelyReset) {
+        if (m_UiWasAggressivelyReset) {
             return;
         }
 
@@ -559,7 +552,7 @@ public:
             handleDeletedTabs();
         }
 
-        if (m_ImguiWasAggressivelyReset) {
+        if (m_UiWasAggressivelyReset) {
             return;
         }
 
@@ -697,7 +690,7 @@ public:
 
     void impl_reset_imgui()
     {
-        m_ImguiWasAggressivelyReset = true;
+        m_UiWasAggressivelyReset = true;
     }
 
     void tryHandleScreenshotRequest()
@@ -714,6 +707,22 @@ public:
 
 private:
     OSC_OWNER_GETTERS(MainUIScreen);
+
+    // Creates the top-level 2D UI context configuration (fonts, etc.).
+    static ui::ContextConfiguration CreateUiContextConfig()
+    {
+        ui::ContextConfiguration rv;
+        rv.set_base_imgui_ini_config_resource("OpenSimCreator/imgui_base_config.ini");
+        rv.set_main_font_as_standard_plus_icon_font(
+            "OpenSimCreator/fonts/Ruda-Bold.ttf",
+            "OpenSimCreator/fonts/OpenSimCreatorIconFont.ttf",
+            {OSC_ICON_MIN, OSC_ICON_MAX}
+        );
+        return rv;
+    }
+
+    // top-level 2D UI context (required for `ui::` calls to work).
+    ui::Context m_UiContext{App::upd(), CreateUiContextConfig()};
 
     // user-visible UI tabs
     std::vector<std::unique_ptr<Tab>> m_Tabs;
@@ -868,7 +877,7 @@ private:
     bool m_QuitRequested = false;
 
     // true if the UI context was aggressively reset by a tab (and, therefore, this screen should reset the UI)
-    bool m_ImguiWasAggressivelyReset = false;
+    bool m_UiWasAggressivelyReset = false;
 
     // `valid` if the user has requested a screenshot (that hasn't yet been handled)
     std::future<Screenshot> m_MaybeScreenshotRequest;

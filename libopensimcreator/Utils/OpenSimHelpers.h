@@ -117,28 +117,28 @@ namespace osc
     template<typename T>
     const T* begin(const OpenSim::Array<T>& ary)
     {
-        return std::addressof(ary[0]);
+        return size(ary) != 0 ? std::addressof(ary[0]) : nullptr;
     }
 
     // Returns an iterator to the beginning of `ary` (see: `std::begin`, `std::ranges::begin`).
     template<typename T>
     T* begin(OpenSim::Array<T>& ary)
     {
-        return std::addressof(ary[0]);
+        return size(ary) != 0 ? std::addressof(ary[0]) : nullptr;
     }
 
     // Returns an iterator to the end (i.e. the element after the last element) of `ary` (see: `std::end`, `std::ranges::end`)
     template<typename T>
     const T* end(const OpenSim::Array<T>& ary)
     {
-        return std::addressof(ary[ary.getSize()]);
+        return begin(ary) + size(ary);
     }
 
     // Returns an iterator to the end (i.e. the element after the last element) of `ary` (see: `std::end`, `std::ranges::end`)
     template<typename T>
     T* end(OpenSim::Array<T>& ary)
     {
-        return std::addressof(ary[ary.getSize()]);
+        return begin(ary) + ary.size();
     }
 
     // Returns whether `s` is empty (see: `std::empty`)
@@ -808,7 +808,7 @@ namespace osc
     OpenSim::Component& AddComponentToAppropriateSet(OpenSim::Model&, std::unique_ptr<OpenSim::Component>);
 
     // adds a model component to the component set of a model and returns a reference to the component
-    OpenSim::ModelComponent& AddModelComponent(OpenSim::Model&, std::unique_ptr<OpenSim::ModelComponent>);
+    OpenSim::ModelComponent& AddModelComponent(OpenSim::Model&, std::unique_ptr<OpenSim::ModelComponent>&&);
 
     // adds a specific (T) model component to the component set of the model and returns a reference to the component
     template<std::derived_from<OpenSim::ModelComponent> T>
@@ -826,7 +826,7 @@ namespace osc
     }
 
     // adds a new component to the component set of the component and returns a reference to the new component
-    OpenSim::Component& AddComponent(OpenSim::Component&, std::unique_ptr<OpenSim::Component>);
+    OpenSim::Component& AddComponent(OpenSim::Component&, std::unique_ptr<OpenSim::Component>&&);
 
     template<std::derived_from<OpenSim::Component> T>
     T& AddComponent(OpenSim::Component& c, std::unique_ptr<T> p)
@@ -1104,4 +1104,6 @@ namespace osc
         const OpenSim::Storage&,
         double time
     );
+
+    std::string WriteObjectXMLToString(const OpenSim::Object&);
 }

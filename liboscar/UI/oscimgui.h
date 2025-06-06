@@ -14,8 +14,9 @@
 #include <liboscar/Maths/Vec3.h>
 #include <liboscar/Platform/Key.h>
 #include <liboscar/Platform/KeyCombination.h>
-#include <liboscar/Shims/Cpp23/utility.h>
+#include <liboscar/Platform/ResourcePath.h>
 #include <liboscar/Utils/Conversion.h>
+#include <liboscar/Utils/CopyOnUpdPtr.h>
 #include <liboscar/Utils/CStringView.h>
 #include <liboscar/Utils/Flags.h>
 #include <liboscar/Utils/UID.h>
@@ -43,24 +44,65 @@ struct ImDrawList;
 
 namespace osc::ui
 {
-    // functions related to top-level ui context management
-    namespace context
-    {
-        // init global UI context
-        void init(App&);
+    class Context;
 
-        // shutdown UI context
-        void shutdown(App&);
+    // Represents the runtime configuration of a UI context.
+    class ContextConfiguration final {
+    public:
+        ContextConfiguration();
 
-        // returns true if the UI handled the event
+        // Sets the resource path to an `imgui.ini` file that acts as the "base" config
+        // when the user doesn't already have one in their user data directory.
+        void set_base_imgui_ini_config_resource(ResourcePath);
+
+        // Sets the UI's main font as a merged combination of a 'standard' font
+        // and an 'icon' font, where the latter contains UTF8-to-glyph mappings
+        // for arbitrary icons.
+        void set_main_font_as_standard_plus_icon_font(
+            ResourcePath main_font_ttf_path,
+            ResourcePath icon_font_ttf_path,
+            ClosedInterval<char16_t> codepoint_range
+        );
+
+        class Impl;
+    private:
+        friend class Context;
+        CopyOnUpdPtr<Impl> impl() const { return impl_; }
+
+        CopyOnUpdPtr<Impl> impl_;
+    };
+
+    // Represents the top-level UI context that `ui::` functions talk to
+    // when drawing the UI.
+    class Context final {
+    public:
+        // Constructs a global UI context with the given configuration.
+        explicit Context(App&, ContextConfiguration = {});
+
+        Context(const Context&) = delete;
+        Context(Context&&) noexcept = delete;
+
+        // Shuts down the global UI context.
+        ~Context() noexcept;
+
+        Context& operator=(const Context&) = delete;
+        Context& operator=(Context&&) noexcept = delete;
+
+        // Shuts down and constructs this `UiContext` in-place.
+        void reset();
+
+        // Returns true if the UI handled the event.
         bool on_event(Event&);
 
-        // should be called at the start of each frame (e.g. `Screen::on_draw()`)
-        void on_start_new_frame(App&);
+        // Should be called at the start of each frame (e.g. `Screen::on_draw()`).
+        void on_start_new_frame();
 
-        // should be called at the end of each frame (e.g. the end of `Screen::on_draw()`)
+        // Should be called at the end of each frame (e.g. the end of `Screen::on_draw()`).
         void render();
-    }
+    private:
+        void init(App&, CopyOnUpdPtr<ui::ContextConfiguration::Impl>);
+        void shutdown(App&);
+    };
 
     // vertically align upcoming text baseline to FramePadding.y so that it will align properly to regularly framed items (call if you have text on a line before a framed item)
     void align_text_to_frame_padding();
@@ -246,12 +288,15 @@ namespace osc::ui
     // Draws an interactive button with the given label and with a given size in device-independent pixels.
     bool draw_button(CStringView label, const Vec2& size = {});
     bool draw_small_button(CStringView label);
+    bool draw_arrow_down_button(CStringView label);
     // Draws an interactive, but invisible, button with the given label and the given size in device-independent pixels.
     bool draw_invisible_button(CStringView label, Vec2 size = {});
     bool draw_radio_button(CStringView label, bool active);
     bool draw_collapsing_header(CStringView label, TreeNodeFlags = {});
     // Draws an invisible, non-interactive "dummy" element in the UI with the given size in device-independent pixels.
     void draw_dummy(const Vec2& size);
+    // Draws an invisible, non-interactive "dummy" element that is `num_lines` * text line height high.
+    void draw_vertical_spacer(float num_lines);
 
     enum class ComboFlag : unsigned {
         None = 0,
@@ -558,10 +603,11 @@ namespace osc::ui
     void pop_style_color(int count = 1);
 
     Color get_color(ColorVar);
-    float get_text_line_height();
-    float get_text_line_height_with_spacing();
 
-    float get_font_size();
+    float get_text_line_height_in_current_panel();
+    float get_text_line_height_with_spacing_in_current_panel();
+    float get_font_base_size();
+    float get_font_base_size_with_spacing();
 
     Vec2 calc_text_size(CStringView text, bool hide_text_after_double_hash = false);
 
@@ -650,21 +696,19 @@ namespace osc::ui
     // returns the UI content region available in screen-space as a `Rect`
     Rect content_region_avail_as_screen_rect();
 
-    // draws a texture within the 2D UI
+    // Draws a texture within the UI.
     //
-    // assumes the texture coordinates are [(0.0, 1.0), (1.0, 0.0)]
+    // - `texture`: the texture to draw within the UI.
+    // - `dimensions`: the dimensions, in device-independent pixels, that the image
+    //   should occupy in the UI. Default: `texture.device_independent_dimensions()`.
+    // - `region_uv_coordinates`: texture coordinates in texture space (`(0, 0)` means bottom-left,
+    //   `(1, 1)` means top-right) that designate the region within `texture` that should be sampled
+    //   to produce the image within the UI (e.g. for cropping, flipping). Default: entire contents
+    //   `texture`.
     void draw_image(
-        const Texture2D&
-    );
-    void draw_image(
-        const Texture2D&,
-        Vec2 dimensions
-    );
-    void draw_image(
-        const Texture2D&,
-        Vec2 dimensions,
-        Vec2 top_left_texture_coordinate,
-        Vec2 bottom_right_texture_coordinate
+        const Texture2D& texture,
+        std::optional<Vec2> dimensions = std::nullopt,
+        const Rect& region_uv_coordinates = Rect{{0.0f, 0.0f}, {1.0f, 1.0f}}
     );
     void draw_image(
         const RenderTexture&
@@ -1039,14 +1083,20 @@ namespace osc::ui
         Gizmo&,
         bool can_translate = true,
         bool can_rotate = true,
-        bool can_scale = true
+        bool can_scale = true,
+        CStringView translate_button_text = "T",
+        CStringView rotate_button_text = "R",
+        CStringView scale_button_text = "S"
     );
 
     bool draw_gizmo_op_selector(
         GizmoOperation&,
         bool can_translate = true,
         bool can_rotate = true,
-        bool can_scale = true
+        bool can_scale = true,
+        CStringView translate_button_text = "T",
+        CStringView rotate_button_text = "R",
+        CStringView scale_button_text = "S"
     );
 
     // oscar bindings for `ImPlot`
@@ -1068,15 +1118,15 @@ namespace osc::ui
         };
         constexpr PlotFlags operator|(PlotFlags lhs, PlotFlags rhs)
         {
-            return static_cast<PlotFlags>(cpp23::to_underlying(lhs) | cpp23::to_underlying(rhs));
+            return static_cast<PlotFlags>(std::to_underlying(lhs) | std::to_underlying(rhs));
         }
         constexpr PlotFlags operator^(PlotFlags lhs, PlotFlags rhs)
         {
-            return static_cast<PlotFlags>(cpp23::to_underlying(lhs) ^ cpp23::to_underlying(rhs));
+            return static_cast<PlotFlags>(std::to_underlying(lhs) ^ std::to_underlying(rhs));
         }
         constexpr bool operator&(PlotFlags lhs, PlotFlags rhs)
         {
-            return (cpp23::to_underlying(lhs) & cpp23::to_underlying(rhs)) != 0;
+            return (std::to_underlying(lhs) & std::to_underlying(rhs)) != 0;
         }
 
         enum class PlotStyleVar {
@@ -1130,7 +1180,7 @@ namespace osc::ui
 
         constexpr AxisFlags operator|(AxisFlags lhs, AxisFlags rhs)
         {
-            return static_cast<AxisFlags>(cpp23::to_underlying(lhs) | cpp23::to_underlying(rhs));
+            return static_cast<AxisFlags>(std::to_underlying(lhs) | std::to_underlying(rhs));
         }
 
         enum class Condition {
@@ -1179,12 +1229,12 @@ namespace osc::ui
 
         constexpr bool operator&(LegendFlags lhs, LegendFlags rhs)
         {
-            return (cpp23::to_underlying(lhs) & cpp23::to_underlying(rhs)) != 0;
+            return (std::to_underlying(lhs) & std::to_underlying(rhs)) != 0;
         }
 
         constexpr LegendFlags operator^(LegendFlags lhs, LegendFlags rhs)
         {
-            return static_cast<LegendFlags>(cpp23::to_underlying(lhs) ^ cpp23::to_underlying(rhs));
+            return static_cast<LegendFlags>(std::to_underlying(lhs) ^ std::to_underlying(rhs));
         }
 
         // draws the plotting demo in its own panel

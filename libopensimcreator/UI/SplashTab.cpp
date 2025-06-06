@@ -1,10 +1,10 @@
 #include "SplashTab.h"
 
 #include <libopensimcreator/Documents/Model/UndoableModelActions.h>
+#include <libopensimcreator/Platform/IconCodepoints.h>
 #include <libopensimcreator/Platform/OpenSimCreatorApp.h>
 #include <libopensimcreator/Platform/RecentFile.h>
 #include <libopensimcreator/Platform/RecentFiles.h>
-#include <libopensimcreator/UI/FrameDefinition/FrameDefinitionTab.h>
 #include <libopensimcreator/UI/LoadingTab.h>
 #include <libopensimcreator/UI/MeshImporter/MeshImporterTab.h>
 #include <libopensimcreator/UI/MeshWarper/MeshWarpingTab.h>
@@ -30,7 +30,6 @@
 #include <liboscar/Platform/AppSettings.h>
 #include <liboscar/Platform/Events/DropFileEvent.h>
 #include <liboscar/Platform/Events/Event.h>
-#include <liboscar/Platform/IconCodepoints.h>
 #include <liboscar/Platform/os.h>
 #include <liboscar/UI/Events/OpenTabEvent.h>
 #include <liboscar/UI/oscimgui.h>
@@ -286,16 +285,10 @@ private:
         App::upd().add_frame_annotation("SplashTab/MeshWarpingMenuItem", ui::get_last_drawn_item_screen_rect());
 
         if (ui::draw_menu_item(OSC_ICON_MAGIC " Model Warping (" OSC_ICON_MAGIC " experimental)")) {
-            auto tab = std::make_unique<mow::ModelWarperTab>(parent());
+            auto tab = std::make_unique<ModelWarperTab>(parent());
             App::post_event<OpenTabEvent>(*parent(), std::move(tab));
         }
         App::upd().add_frame_annotation("SplashTab/ModelWarpingMenuItem", ui::get_last_drawn_item_screen_rect());
-
-        if (ui::draw_menu_item(OSC_ICON_ARROWS_ALT " Frame Definition (" OSC_ICON_TIMES " deprecated)")) {
-            auto tab = std::make_unique<FrameDefinitionTab>(parent());
-            App::post_event<OpenTabEvent>(*parent(), std::move(tab));
-        }
-        ui::draw_tooltip_if_item_hovered("Frame Definition Workflow", "This feature is currently scheduled for deprecation. If you think it shouldn't be deprecated, then post a comment on GitHub issue #951.");
     }
 
     void drawRecentlyOpenedFilesMenuSectionContent(int& imguiID)
@@ -311,7 +304,7 @@ private:
             }
         }
         else {
-            ui::push_style_color(ui::ColorVar::Text, Color::half_grey());
+            ui::push_style_color(ui::ColorVar::Text, Color::dark_grey());
             ui::draw_text_wrapped("No files opened recently. Try:");
             ui::draw_text_bullet_pointed("Creating a new model (Ctrl+N)");
             ui::draw_text_bullet_pointed("Opening an existing model (Ctrl+O)");
@@ -323,19 +316,19 @@ private:
     void drawMenuLeftColumnContent(int& imguiID)
     {
         ui::draw_text_disabled("Actions");
-        ui::draw_dummy({0.0f, 2.0f});
+        ui::draw_vertical_spacer(2.0f/15.0f);
 
         drawActionsMenuSectionContent();
 
-        ui::draw_dummy({0.0f, 1.0f*ui::get_text_line_height()});
+        ui::draw_vertical_spacer(1.0f);
         ui::draw_text_disabled("Workflows");
-        ui::draw_dummy({0.0f, 2.0f});
+        ui::draw_vertical_spacer(2.0f/15.0f);
 
         drawWorkflowsMenuSectionContent();
 
-        ui::draw_dummy({0.0f, 1.0f*ui::get_text_line_height()});
+        ui::draw_vertical_spacer(1.0f);
         ui::draw_text_disabled("Recent Models");
-        ui::draw_dummy({0.0f, 2.0f});
+        ui::draw_vertical_spacer(2.0f/15.0f);
 
         drawRecentlyOpenedFilesMenuSectionContent(imguiID);
     }
@@ -345,7 +338,7 @@ private:
         if (not m_MainMenuFileTab->exampleOsimFiles.empty()) {
 
             ui::draw_text_disabled("Example Models");
-            ui::draw_dummy({0.0f, 2.0f});
+            ui::draw_vertical_spacer(2.0f/15.0f);
 
             for (const std::filesystem::path& examplePath : m_MainMenuFileTab->exampleOsimFiles) {
                 DrawRecentOrExampleFileMenuItem(
@@ -379,7 +372,7 @@ private:
     void drawVersionInfo()
     {
         const Rect tabUIRect = ui::get_main_viewport_workspace_uiscreenspace_rect();
-        const float h = ui::get_text_line_height_with_spacing();
+        const float h = ui::get_font_base_size_with_spacing();
         const float padding = 5.0f;
 
         const Vec2 pos{

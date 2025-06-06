@@ -8,17 +8,25 @@ set -xeuo pipefail
 
 cmake \
     -S third_party/ \
-    -B osc-deps-build \
+    -B third_party-build \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-    -DCMAKE_INSTALL_PREFIX=${PWD}/osc-deps-install
-cmake --build osc-deps-build -j$(nproc)
+    -DCMAKE_INSTALL_PREFIX="${PWD}/third_party-install"
+cmake --build third_party-build --verbose -j$(nproc)
 cmake \
     -S . \
-    -B osc-build \
+    -B build/ \
     -DCMAKE_BUILD_TYPE=Debug \
-    -DCMAKE_PREFIX_PATH=${PWD}/osc-deps-install
-cmake --build osc-build/ -j$(nproc)
+    -DCMAKE_PREFIX_PATH="${PWD}/third_party-install"
+cmake --build build/ --verbose -j$(nproc)
 
 export LIBGL_ALWAYS_SOFTWARE=1
-valgrind_cmd="valgrind --leak-check=full --trace-children=yes --suppressions=${PWD}/scripts/valgrind_suppressions.supp"
-${valgrind_cmd} ctest --test-dir osc-build --output-on-failure
+tmp=$(mktemp /tmp/valgrind_suppressions.XXXX.supp)
+cat << 'EOF' > $tmp
+{
+    Memcheck:Leak
+    obj:/usr/lib/wsl/lib/*.so
+    obj:/usr/lib/x86_64-linux-gnu/libgobject-2.0.*
+}
+EOF
+valgrind_cmd="valgrind --leak-check=full --trace-children=yes --suppressions=${tmp}"
+${valgrind_cmd} ctest --test-dir build/ --output-on-failure

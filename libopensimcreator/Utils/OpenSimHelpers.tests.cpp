@@ -307,11 +307,11 @@ TEST(OpenSimHelpers, WriteComponentTopologyGraphAsDotViz)
     WriteComponentTopologyGraphAsDotViz(root, ss);
 
     const std::string rv = ss.str();
-    ASSERT_TRUE(contains(rv, "digraph Component"));
-    ASSERT_TRUE(contains(rv, R"("/" -> "/child1")"));
-    ASSERT_TRUE(contains(rv, R"("/" -> "/child2")"));
-    ASSERT_TRUE(contains(rv, R"("/child2" -> "/child1")"));
-    ASSERT_TRUE(contains(rv, R"(label="sibling")"));
+    ASSERT_TRUE(rv.contains("digraph Component"));
+    ASSERT_TRUE(rv.contains(R"("/" -> "/child1")"));
+    ASSERT_TRUE(rv.contains(R"("/" -> "/child2")"));
+    ASSERT_TRUE(rv.contains(R"("/child2" -> "/child1")"));
+    ASSERT_TRUE(rv.contains(R"(label="sibling")"));
 }
 
 TEST(OpenSimHelpers, WriteModelMultibodySystemGraphAsDotViz)
@@ -325,8 +325,8 @@ TEST(OpenSimHelpers, WriteModelMultibodySystemGraphAsDotViz)
 
     const std::string rv = ss.str();
     ASSERT_FALSE(rv.empty());
-    ASSERT_TRUE(contains(rv, "digraph"));
-    ASSERT_TRUE(contains(rv, R"(somebody" ->)")) << rv;
+    ASSERT_TRUE(rv.contains("digraph"));
+    ASSERT_TRUE(rv.contains(R"(somebody" ->)")) << rv;
 }
 
 TEST(OpenSimHelpers, GetAllWrapObjectsReferencedByWorksAsExpected)
@@ -408,4 +408,14 @@ TEST(OpenSimHelpers, HasModelFileExtension_AcceptsCapitalizedOsimExtension)
     ASSERT_FALSE(HasModelFileExtension("some/path/to/legacy/model.jpeg"));
     ASSERT_FALSE(HasModelFileExtension("some/path/to/legacy/model"));
     ASSERT_FALSE(HasModelFileExtension("some/path/to/legacy/osim"));
+}
+
+TEST(OpenSimHelpers, WriteObjectXMLToStringWorksOnBasicRootObject)
+{
+    OpenSim::Body body{"somebody", 1.0, SimTK::Vec3{2.0, 3.0, 4.0}, SimTK::Inertia{SimTK::Vec3{1.0}}};
+    body.finalizeFromProperties();
+    const std::string dump = WriteObjectXMLToString(body);
+
+    ASSERT_TRUE(dump.contains("somebody"));
+    ASSERT_TRUE(dump.contains("<mass>"));
 }

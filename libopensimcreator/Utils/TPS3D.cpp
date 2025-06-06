@@ -134,8 +134,8 @@ namespace
         // populate the K part of matrix L (upper-left)
         for (int row = 0; row < numPairs; ++row) {
             for (int col = 0; col < numPairs; ++col) {
-                const Vec<3, T> pis = {source_landmarks(row, 0), source_landmarks(row, 1), source_landmarks(row, 2)};
-                const Vec<3, T> pj = {source_landmarks(col, 0), source_landmarks(col, 1), source_landmarks(col, 2)};
+                const Vec<3, T> pis = {source_landmarks[row, 0], source_landmarks[row, 1], source_landmarks[row, 2]};
+                const Vec<3, T> pj = {source_landmarks[col, 0], source_landmarks[col, 1], source_landmarks[col, 2]};
 
                 L(row, col) = RadialBasisFunction3D(pis, pj);
             }
@@ -147,9 +147,9 @@ namespace
 
             for (int row = 0; row < numPairs; ++row) {
                 L(row, pStartColumn)     = 1.0;
-                L(row, pStartColumn + 1) = source_landmarks(row, 0);
-                L(row, pStartColumn + 2) = source_landmarks(row, 1);
-                L(row, pStartColumn + 3) = source_landmarks(row, 2);
+                L(row, pStartColumn + 1) = source_landmarks[row, 0];
+                L(row, pStartColumn + 2) = source_landmarks[row, 1];
+                L(row, pStartColumn + 3) = source_landmarks[row, 2];
             }
         }
 
@@ -159,9 +159,9 @@ namespace
 
             for (int col = 0; col < numPairs; ++col) {
                 L(ptStartRow, col)     = 1.0;
-                L(ptStartRow + 1, col) = source_landmarks(col, 0);
-                L(ptStartRow + 2, col) = source_landmarks(col, 1);
-                L(ptStartRow + 3, col) = source_landmarks(col, 2);
+                L(ptStartRow + 1, col) = source_landmarks[col, 0];
+                L(ptStartRow + 2, col) = source_landmarks[col, 1];
+                L(ptStartRow + 3, col) = source_landmarks[col, 2];
             }
         }
 
@@ -182,9 +182,9 @@ namespace
         SimTK::Vector Vy(numPairs + 4, 0.0);
         SimTK::Vector Vz(numPairs + 4, 0.0);
         for (int row = 0; row < numPairs; ++row) {
-            Vx[row] = destination_landmarks(row, 0);
-            Vy[row] = destination_landmarks(row, 1);
-            Vz[row] = destination_landmarks(row, 2);
+            Vx[row] = destination_landmarks[row, 0];
+            Vy[row] = destination_landmarks[row, 1];
+            Vz[row] = destination_landmarks[row, 2];
         }
 
         // create a linear solver that can be used to solve `L*Cn = Vn` for `Cn` (where `n` is a dimension)
@@ -214,7 +214,7 @@ namespace
         rv.nonAffineTerms.reserve(numPairs);
         for (int i = 0; i < numPairs; ++i) {
             const Vec3 weight = {Cx[i], Cy[i], Cz[i]};
-            const Vec3 controlPoint = {source_landmarks(i, 0), source_landmarks(i, 1), source_landmarks(i, 2)};
+            const Vec3 controlPoint = {source_landmarks[i, 0], source_landmarks[i, 1], source_landmarks[i, 2]};
             rv.nonAffineTerms.emplace_back(weight, controlPoint);
         }
 
@@ -235,10 +235,30 @@ namespace
         const std::array<size_t, 2> strides = {6, 1};
         const cpp23::layout_stride::mapping mapping{shape, strides};
 
-        return ::TPSCalcCoefficients<T>(
+        auto rv = ::TPSCalcCoefficients<T>(
             {&inputs.landmarks.front().source.x, mapping},
             {&inputs.landmarks.front().destination.x, mapping}
         );
+
+        // If required, modify the coefficients
+        if (not inputs.applyAffineTranslation) {
+            rv.a1 = {};
+        }
+        if (not inputs.applyAffineScale) {
+            rv.a2 = normalize(rv.a2);
+            rv.a3 = normalize(rv.a3);
+            rv.a4 = normalize(rv.a4);
+        }
+        if (not inputs.applyAffineRotation) {
+            rv.a2 = {length(rv.a2), T(0.0),        T(0.0)};
+            rv.a3 = {T(0.0),        length(rv.a3), T(0.0)};
+            rv.a4 = {T(0.0),        T(0.0),        length(rv.a4)};
+        }
+        if (not inputs.applyNonAffineWarp) {
+            rv.nonAffineTerms.clear();
+        }
+
+        return rv;
     }
 
     template<std::floating_point T>

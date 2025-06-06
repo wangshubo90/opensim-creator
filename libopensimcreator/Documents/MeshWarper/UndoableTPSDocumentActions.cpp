@@ -142,6 +142,18 @@ void osc::ActionSetRecalculatingNormals(UndoableTPSDocument& doc, bool newState)
     doc.commit_scratch(msg);
 }
 
+void osc::ActionSetSourceLandmarksPrescale(UndoableTPSDocument& doc, float newSourceLandmarksPrescale)
+{
+    doc.upd_scratch().sourceLandmarksPrescale = newSourceLandmarksPrescale;
+    doc.commit_scratch("changed source prescale factor");
+}
+
+void osc::ActionSetDestinationLandmarksPrescale(UndoableTPSDocument& doc, float newDestinationLandmarksPrescale)
+{
+    doc.upd_scratch().destinationLandmarksPrescale = newDestinationLandmarksPrescale;
+    doc.commit_scratch("changed destination prescale factor");
+}
+
 void osc::ActionCreateNewDocument(UndoableTPSDocument& doc)
 {
     doc.upd_scratch() = TPSDocument{};
@@ -194,7 +206,7 @@ void osc::ActionLoadMesh(
     doc.commit_scratch("changed mesh");
 }
 
-void osc::ActionLoadMeshFile(
+void osc::ActionPromptUserToLoadMeshFile(
     const std::shared_ptr<UndoableTPSDocument>& doc,
     TPSDocumentInputIdentifier which)
 {
@@ -210,7 +222,7 @@ void osc::ActionLoadMeshFile(
     );
 }
 
-void osc::ActionLoadLandmarksFromCSV(
+void osc::ActionPromptUserToLoadLandmarksFromCSV(
     const std::shared_ptr<UndoableTPSDocument>& doc,
     TPSDocumentInputIdentifier which)
 {
@@ -234,13 +246,13 @@ void osc::ActionLoadLandmarksFromCSV(
             doc->commit_scratch("loaded landmarks");
         },
         {
-            FileDialogFilter::all_files(),
             csv_file_dialog_filter(),
+            FileDialogFilter::all_files(),
         }
     );
 }
 
-void osc::ActionLoadNonParticipatingLandmarksFromCSV(const std::shared_ptr<UndoableTPSDocument>& doc)
+void osc::ActionPromptUserToLoadNonParticipatingLandmarksFromCSV(const std::shared_ptr<UndoableTPSDocument>& doc)
 {
     App::upd().prompt_user_to_select_file_async(
         [doc](const FileDialogResponse& response)
@@ -262,13 +274,13 @@ void osc::ActionLoadNonParticipatingLandmarksFromCSV(const std::shared_ptr<Undoa
             doc->commit_scratch("added non-participating landmarks");
         },
         {
-            FileDialogFilter::all_files(),
             csv_file_dialog_filter(),
+            FileDialogFilter::all_files(),
         }
     );
 }
 
-void osc::ActionSaveLandmarksToCSV(
+void osc::ActionPromptUserToSaveLandmarksToCSV(
     const TPSDocument& doc,
     TPSDocumentInputIdentifier which,
     lm::LandmarkCSVFlags flags)
@@ -284,20 +296,29 @@ void osc::ActionSaveLandmarksToCSV(
             return;  // couldn't open file for writing
         }
 
-        lm::WriteLandmarksToCSV(fout, [which, pairs = std::move(pairs)]() mutable
-        {
-            std::optional<lm::Landmark> rv;
-            for (const TPSDocumentLandmarkPair& pair : pairs) {
-                if (const auto location = GetLocation(pair, which)) {
-                    rv = lm::Landmark{std::string{pair.name}, *location};
-                }
-            }
-            return rv;
-        }, flags);
+        ActionWriteLandmarksAsCSV(pairs, which, flags, fout);
     }, "csv");
 }
 
-void osc::ActionSaveNonParticipatingLandmarksToCSV(
+void osc::ActionWriteLandmarksAsCSV(
+    std::span<const TPSDocumentLandmarkPair> pairs,
+    TPSDocumentInputIdentifier which,
+    lm::LandmarkCSVFlags flags,
+    std::ostream& out)
+{
+    lm::WriteLandmarksToCSV(out, [which, it = pairs.begin(), end = pairs.end()]() mutable -> std::optional<lm::Landmark>
+    {
+        while (it != end) {
+            const auto& pair = *it++;
+            if (const auto location = GetLocation(pair, which)) {
+                return lm::Landmark{std::string{pair.name}, *location};
+            }
+        }
+        return std::nullopt;
+    }, flags);
+}
+
+void osc::ActionPromptUserToSaveNonParticipatingLandmarksToCSV(
     const TPSDocument& doc,
     lm::LandmarkCSVFlags flags)
 {
@@ -324,7 +345,7 @@ void osc::ActionSaveNonParticipatingLandmarksToCSV(
     }, "csv");
 }
 
-void osc::ActionSavePairedLandmarksToCSV(const TPSDocument& doc, lm::LandmarkCSVFlags flags)
+void osc::ActionPromptUserToSavePairedLandmarksToCSV(const TPSDocument& doc, lm::LandmarkCSVFlags flags)
 {
     App::upd().prompt_user_to_save_file_with_extension_async([pairs = GetNamedLandmarkPairs(doc), flags](std::optional<std::filesystem::path> maybePath)
     {
@@ -370,7 +391,7 @@ void osc::ActionSavePairedLandmarksToCSV(const TPSDocument& doc, lm::LandmarkCSV
     }, "csv");
 }
 
-void osc::ActionTrySaveMeshToObjFile(const Mesh& mesh, ObjWriterFlags flags)
+void osc::ActionPromptUserToSaveMeshToObjFile(const Mesh& mesh, ObjWriterFlags flags)
 {
     App::upd().prompt_user_to_save_file_with_extension_async([mesh, flags](std::optional<std::filesystem::path> p)
     {
@@ -390,7 +411,7 @@ void osc::ActionTrySaveMeshToObjFile(const Mesh& mesh, ObjWriterFlags flags)
     }, "obj");
 }
 
-void osc::ActionTrySaveMeshToStlFile(const Mesh& mesh)
+void osc::ActionPromptUserToMeshToStlFile(const Mesh& mesh)
 {
     App::upd().prompt_user_to_save_file_with_extension_async([mesh](std::optional<std::filesystem::path> p)
     {
@@ -411,7 +432,7 @@ void osc::ActionTrySaveMeshToStlFile(const Mesh& mesh)
     }, "stl");
 }
 
-void osc::ActionSaveWarpedNonParticipatingLandmarksToCSV(
+void osc::ActionPromptUserToSaveWarpedNonParticipatingLandmarksToCSV(
     const TPSDocument& doc,
     TPSResultCache& cache,
     lm::LandmarkCSVFlags flags)
@@ -432,15 +453,28 @@ void osc::ActionSaveWarpedNonParticipatingLandmarksToCSV(
             return;  // couldn't open file for writing
         }
 
-        lm::WriteLandmarksToCSV(fout, [&warpedNplms, &nplms, i = static_cast<size_t>(0)]() mutable
+        lm::WriteLandmarksToCSV(fout, [&warpedNplms, &nplms, i = 0uz]() mutable
         {
             std::optional<lm::Landmark> rv;
-            for (; !rv && i < warpedNplms.size(); ++i)
-            {
+            for (; !rv && i < warpedNplms.size(); ++i) {
                 std::string name = std::string{nplms.at(i).name};
                 rv = lm::Landmark{std::move(name), warpedNplms.at(i)};
             }
             return rv;
         }, flags);
     });
+}
+
+void osc::ActionSwapSourceDestination(UndoableTPSDocument& doc)
+{
+    using std::swap;
+
+    TPSDocument& scratch = doc.upd_scratch();
+    swap(scratch.destinationLandmarksPrescale, scratch.sourceLandmarksPrescale);
+    swap(scratch.sourceMesh, scratch.destinationMesh);
+    for (auto& lmp : scratch.landmarkPairs) {
+        swap(lmp.maybeSourceLocation, lmp.maybeDestinationLocation);
+    }
+
+    doc.commit_scratch("Swapped source <--> destination");
 }

@@ -5,6 +5,85 @@ on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Upcoming Release]
 
+- **Your panel locations/docking might be broken/reset**. The underlying UI system
+  for OpenSim Creator now uses a different panel ID mechanism, which means that any
+  `imgui.ini` files written by earlier versions of OSC no longer work with the new one.
+  What this practically means is that you might have to readjust your panel locations
+  when you boot this version of OSC for the first time.
+- The component context (right-click) menu was redesigned for consistency, and is
+  now able to add any component as a child of any other component, which is useful
+  when building complex models hierarchically:
+  - The menu more clearly separates common functions that are possible on any
+    component (or nothing, if the background is right-clicked).
+  - The `Add` menu now also takes into account which component was right-clicked,
+    so that the added component ends up as a child of the right-clicked one.
+  - Component-specific specialized adders (e.g. 'Wrap Object' when right-clicking
+    a frame, 'Add Parent Offset Frame' when right-clicking a Joint) are now part
+    of the `Add` menu, with a separator between them and the common `Add` functions.
+  - The "Toggle Frames" context menu action was removed. It was a legacy feature added
+    in Feb 2023 (#50), but has now been superseded by options in the `Display` menu and
+    the model editor's toolbar (#887).
+- The "Copy Absolute Path to Clipboard" contextual action was replaced with a "Copy"
+  menu that has additional functionalities (e.g. "Copy Name", "Copy Concrete Class Name").
+- Fixed a crashing bug in mesh warper's landmark exporter where it would infinitely
+  loop and write the same landmark over and over when exporting to a CSV (#1045).
+- The model warper's "Export Warped Model" button now has a submenu where the
+  user can view and select which directory the warped geometry should be written
+  to (#1046).
+- Internal: `liboscar` now accepts its font/configuration dependencies externally,
+  which helps with decoupling it from OpenSimCreator's specific font/icon/configuration
+  assets.
+- Internal: `liboscar` now explicitly outlines that it uses a right-handed coordinate
+  system and encoding format for textures (i.e. x goes right, y goes up, origin is
+  bottom-left), which matches OpenGL's conventions (#1044).
+
+
+## [0.5.23] - 2025/05/26
+
+- The center of mass visualization for `Body` components now matches how engineering
+  textbooks tend to represent CoMs (#575).
+- A search bar was added to the `Add` context menu, enabling users to search through
+  all available components.
+- The property editors shown in the `Properties` panel were cleaned up, such that they
+  align better and editor buttons now have a clear `edit` and `view` annotations.
+- The alignment of property editors was adjusted such that they all align on the
+  left side (previously: double editors were indented slightly).
+- Fixed a crash that occurred when opening a property editor that spawns an external
+  panel/dialog from within the `Add Component` dialog (#1040).
+- The search bar in the "Add Component" dialog was cleaned up and now matches similar
+  search bars in other dialogs.
+- File dialog filters now default to filtering typically-supported file extensions for
+  the given prompted filetype (e.g. opening a mesh will filter `obj`, `stl`, and `vtp`;
+  previously, all dialogs defaulted to 'All Files', which can be tricky when working with
+  directories containing many files).
+- The mesh warping workflow now has a 'swap source <--> destination' button, to make it
+  possible to see what the inverse of a TPS warp looks like.
+- The mesh warping workflow now has a `source/destination landmarks prescale` option, which
+  enables multiplying each landmark by a scaling factor before using them in the TPS technique.
+  This matches a similar feature in the model warper and is necessary when handling data in
+  different units (e.g. millimeters vs. meters).
+- The mesh warping workflow now has toggles for `scale`, `rotation`, `translation`, and `warp`,
+  which lets users toggle those parts of the TPS technique in-UI. This matches a similar feature
+  in the model warper and is useful for understanding the underlying TPS warp.
+- Fixed an edge-case where loading multiple model files simultaneously could sometimes
+  cause the models not to load (#1036).
+- The draft explaining `StationDefinedFrame`s has been upgraded to a full tutorial in the
+  OpenSim Creator documentation.
+- The test suite for `liboscar` now works in Debug mode with MSVC (OpenSimCreator doesn't
+  yet, due to upstream issues in OpenSim, #982).
+- The development documentation now outlines OpenSim Creator's release process and the
+  exact compiler versions etc. that the project is built with (#1022 #1017).
+- The original (deprecated/prototype) version of the model warper workflow was dropped.
+  References to it have been replaced with references to the new model warper, which follows
+  our intended long-term design goals for the feature.
+- The frame definition tab button was removed from the splash screen, this is the next stage
+  of deprecation after labelling it as deprecated (if you use it, write something in issue #951).
+- Internal: the source code level for the project was upgraded from C++20 to C++23.
+- Internal: fixed a regression introduced by an ImGui upgrade that prevents the screenshot
+  taker from working if a modal dialog is shown (#1038).
+- Internal: googletest was updated to v1.17.0, lunasvg was updated to v3.3.0, SDL was updated
+  to v3.2.14, and stb was updated to its latest commit (802cd45).
+
 
 ## [0.5.22] - 2025/04/25
 
@@ -40,7 +119,7 @@ on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Modal popups (e.g. add body, add component) now immediately pop up with no
   background fade-in, because the fade-in can be uneven when the UI is running
   in an event-driven mode.
-- Replaced the keybind `Ctrl+A` with `Escape` for cleaing the selection in the model
+- Replaced the keybind `Ctrl+A` with `Escape` for clearing the selection in the model
   editor tab to make it consistent with other workflow keybinds.
 - The main menu now contains a `Close` button, which will close the currently-opened
   tab.
@@ -48,7 +127,7 @@ on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   convention (#975):
   - In most cases, it's `opensimcreator-$version-$os-$arch.$ext` (e.g. `opensimcreator-0.5.21-macos-arm64.dmg`)
   - In Debian/Ubuntu's case, it's `opensimcreator_$version_$arch.deb`
-  - This is to accomodate additional packages in the future (e.g. ARM64 on
+  - This is to accommodate additional packages in the future (e.g. ARM64 on
     Windows, portable installers)
   - Previous releases have been retrospectively renamed to follow this convention, to
     make it easier to automatically archive/search them.

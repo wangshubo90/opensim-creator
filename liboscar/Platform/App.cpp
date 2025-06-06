@@ -83,10 +83,10 @@ PhysicalKeyModifiers osc::Converter<KeyModifiers, PhysicalKeyModifiers>::operato
     // Ensure the remapping/casting tricks being done in this function are valid.
     static_assert(num_flags<KeyModifier>() == num_flags<PhysicalKeyModifier>());
     static_assert(num_flags<KeyModifier>() == 4);
-    static_assert(cpp23::to_underlying(KeyModifier::Shift) == cpp23::to_underlying(PhysicalKeyModifier::Shift));
-    static_assert(cpp23::to_underlying(KeyModifier::Ctrl)  == cpp23::to_underlying(PhysicalKeyModifier::Ctrl));
-    static_assert(cpp23::to_underlying(KeyModifier::Meta)  == cpp23::to_underlying(PhysicalKeyModifier::Meta));
-    static_assert(cpp23::to_underlying(KeyModifier::Alt)   == cpp23::to_underlying(PhysicalKeyModifier::Alt));
+    static_assert(std::to_underlying(KeyModifier::Shift) == std::to_underlying(PhysicalKeyModifier::Shift));
+    static_assert(std::to_underlying(KeyModifier::Ctrl)  == std::to_underlying(PhysicalKeyModifier::Ctrl));
+    static_assert(std::to_underlying(KeyModifier::Meta)  == std::to_underlying(PhysicalKeyModifier::Meta));
+    static_assert(std::to_underlying(KeyModifier::Alt)   == std::to_underlying(PhysicalKeyModifier::Alt));
     static_assert(std::is_same_v<KeyModifiers::underlying_type, PhysicalKeyModifiers::underlying_type>);
 
 #if defined(__APPLE__)
@@ -104,10 +104,10 @@ KeyModifiers osc::Converter<PhysicalKeyModifiers, KeyModifiers>::operator()(Phys
     // Ensure the remapping/casting tricks being done in this function are valid.
     static_assert(num_flags<KeyModifier>() == num_flags<PhysicalKeyModifier>());
     static_assert(num_flags<KeyModifier>() == 4);
-    static_assert(cpp23::to_underlying(KeyModifier::Shift) == cpp23::to_underlying(PhysicalKeyModifier::Shift));
-    static_assert(cpp23::to_underlying(KeyModifier::Ctrl)  == cpp23::to_underlying(PhysicalKeyModifier::Ctrl));
-    static_assert(cpp23::to_underlying(KeyModifier::Meta)  == cpp23::to_underlying(PhysicalKeyModifier::Meta));
-    static_assert(cpp23::to_underlying(KeyModifier::Alt)   == cpp23::to_underlying(PhysicalKeyModifier::Alt));
+    static_assert(std::to_underlying(KeyModifier::Shift) == std::to_underlying(PhysicalKeyModifier::Shift));
+    static_assert(std::to_underlying(KeyModifier::Ctrl)  == std::to_underlying(PhysicalKeyModifier::Ctrl));
+    static_assert(std::to_underlying(KeyModifier::Meta)  == std::to_underlying(PhysicalKeyModifier::Meta));
+    static_assert(std::to_underlying(KeyModifier::Alt)   == std::to_underlying(PhysicalKeyModifier::Alt));
     static_assert(std::is_same_v<KeyModifiers::underlying_type, PhysicalKeyModifiers::underlying_type>);
 
 #if defined(__APPLE__)
@@ -450,6 +450,7 @@ namespace
         SDL_SetStringProperty(properties, SDL_PROP_WINDOW_CREATE_TITLE_STRING, application_name.c_str());
         SDL_SetNumberProperty(properties, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, 800);
         SDL_SetNumberProperty(properties, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, 600);
+        SDL_SetBooleanProperty(properties, SDL_PROP_WINDOW_CREATE_HIDDEN_BOOLEAN, is_environment_variable_set("OSC_INTERNAL_HIDE_WINDOW"));
 
         SDL_Window* const rv = SDL_CreateWindowWithProperties(properties);
         if (rv == nullptr) {
@@ -717,15 +718,15 @@ namespace
         std::function<void()> callback_;
     };
 
-    // State that's stored in the sdl3 callback.
-    struct SDL3CallbackState final {
+    // State that's stored in the sdl3 callback when using a file dialog.
+    struct SDL3DialogCallbackState final {
 
         // This free function is what SDL calls with `SDL3CallbackState` when the user is
         // finished with the dialog.
         static void sdl3_compatible_callback(void* userdata, const char* const* filelist, int)
         {
             // Unpack callback state.
-            const std::unique_ptr<SDL3CallbackState> state{static_cast<SDL3CallbackState*>(userdata)};
+            const std::unique_ptr<SDL3DialogCallbackState> state{static_cast<SDL3DialogCallbackState*>(userdata)};
 
             // If there's an error, emit a `FileDialogResponse` that contains the error.
             if (not filelist) {
@@ -753,9 +754,9 @@ namespace
         }
 
         // Constructs the callback state that's stored in SDL3's dialog system.
-        explicit SDL3CallbackState(
+        explicit SDL3DialogCallbackState(
             std::function<void(FileDialogResponse&&)>&& callback_,
-            std::span<const FileDialogFilter> filters_) :
+            std::span<const FileDialogFilter> filters_ = {}) :
             caller_callback{std::move(callback_)},
             caller_filters(filters_.begin(), filters_.end())
         {
@@ -1049,9 +1050,9 @@ public:
         bool allow_many)
     {
         // Setup `SDL_ShowOpenFileDialog` arguments.
-        auto sdl3_callback_state = std::make_unique<SDL3CallbackState>(std::move(callback), filters);
-        const SDL_DialogFileFilter* sdl3_filters_ptr = sdl3_callback_state->sdl3_filters.data();
-        const auto sdl3_num_filters = static_cast<int>(sdl3_callback_state->sdl3_filters.size());
+        auto dialog_callback_state = std::make_unique<SDL3DialogCallbackState>(std::move(callback), filters);
+        const SDL_DialogFileFilter* sdl3_filters_ptr = dialog_callback_state->sdl3_filters.data();
+        const auto sdl3_num_filters = static_cast<int>(dialog_callback_state->sdl3_filters.size());
         std::string default_location;
         if (initial_directory_to_show) {
             default_location = initial_directory_to_show->string();
@@ -1062,8 +1063,8 @@ public:
 
         // Call into SDL3's dialog implementation.
         SDL_ShowOpenFileDialog(
-            SDL3CallbackState::sdl3_compatible_callback,
-            sdl3_callback_state.release(),
+            SDL3DialogCallbackState::sdl3_compatible_callback,
+            dialog_callback_state.release(),
             main_window_.get(),  // make it modal in the main window
             sdl3_filters_ptr,
             sdl3_num_filters,
@@ -1076,13 +1077,38 @@ public:
         request_redraw();
     }
 
+    void prompt_user_to_select_directory_async(
+        std::function<void(FileDialogResponse&&)> callback,
+        std::optional<std::filesystem::path> initial_directory_to_show,
+        bool allow_many)
+    {
+        // Setup `SDL_ShowOpenFolderDialog` arguments.
+        auto dialog_callback_state = std::make_unique<SDL3DialogCallbackState>(std::move(callback));
+        std::string default_location;
+        if (initial_directory_to_show) {
+            default_location = initial_directory_to_show->string();
+        }
+        else if (const auto fallback = get_initial_directory_to_show_fallback()) {
+            default_location = fallback->string();
+        }
+
+        // Call into SDL3's dialog implementation.
+        SDL_ShowOpenFolderDialog(
+            SDL3DialogCallbackState::sdl3_compatible_callback,
+            dialog_callback_state.release(),
+            main_window_.get(),
+            default_location.empty() ? nullptr : default_location.c_str(),
+            allow_many
+        );
+    }
+
     void prompt_user_to_save_file_async(
         std::function<void(FileDialogResponse&&)> callback,
         std::span<const FileDialogFilter> filters,
         std::optional<std::filesystem::path> initial_directory_to_show)
     {
         // Setup `SDL_ShowSaveFileDialog` arguments.
-        auto sdl3_callback_state = std::make_unique<SDL3CallbackState>(std::move(callback), filters);
+        auto sdl3_callback_state = std::make_unique<SDL3DialogCallbackState>(std::move(callback), filters);
         const SDL_DialogFileFilter* sdl3_filters_ptr = sdl3_callback_state->sdl3_filters.data();
         const auto sdl3_num_filters = static_cast<int>(sdl3_callback_state->sdl3_filters.size());
         std::string default_location;
@@ -1095,7 +1121,7 @@ public:
 
         // Call into SDL3's dialog implementation.
         SDL_ShowSaveFileDialog(
-            SDL3CallbackState::sdl3_compatible_callback,
+            SDL3DialogCallbackState::sdl3_compatible_callback,
             sdl3_callback_state.release(),
             main_window_.get(),  // make it modal in the main window
             sdl3_filters_ptr,
@@ -1200,6 +1226,20 @@ public:
     Vec2 main_window_dimensions() const
     {
         return main_window_pixel_dimensions() / main_window_device_pixel_ratio();
+    }
+
+    void try_async_set_main_window_dimensions(Vec2 new_dims)
+    {
+        // mirror `SDL_GetWindowSize` by figuring out the scale factor
+        // difference between what the caller provides (virtual coords,
+        // as scaled by us) and what `SDL_GetWindowSize` provides (unknown
+        // coordinate system).
+
+        Vec2i sdl_size;
+        SDL_GetWindowSize(main_window_.get(), &sdl_size.x, &sdl_size.y);
+        const Vec2 ratio = new_dims/main_window_dimensions();
+        const Vec2i scaled_dims(ratio * Vec2{sdl_size});
+        SDL_SetWindowSize(main_window_.get(), scaled_dims.x, scaled_dims.y);
     }
 
     Vec2 main_window_pixel_dimensions() const
@@ -1879,6 +1919,18 @@ void osc::App::prompt_user_to_select_file_async(
     );
 }
 
+void osc::App::prompt_user_to_select_directory_async(
+    std::function<void(FileDialogResponse&&)> callback,
+    std::optional<std::filesystem::path> initial_directory_to_show,
+    bool allow_many)
+{
+    impl_->prompt_user_to_select_directory_async(
+        std::move(callback),
+        std::move(initial_directory_to_show),
+        allow_many
+    );
+}
+
 void osc::App::prompt_user_to_save_file_async(
     std::function<void(FileDialogResponse&&)> callback,
     std::span<const FileDialogFilter> filters,
@@ -1912,6 +1964,11 @@ WindowID osc::App::main_window_id() const
 Vec2 osc::App::main_window_dimensions() const
 {
     return impl_->main_window_dimensions();
+}
+
+void osc::App::try_async_set_main_window_dimensions(Vec2 new_dims)
+{
+    return impl_->try_async_set_main_window_dimensions(new_dims);
 }
 
 Vec2 osc::App::main_window_pixel_dimensions() const

@@ -4,6 +4,7 @@
 #include <libopensimcreator/Documents/MeshWarper/TPSDocumentInputIdentifier.h>
 #include <libopensimcreator/Documents/MeshWarper/TPSDocumentLandmarkPair.h>
 #include <libopensimcreator/Documents/MeshWarper/UndoableTPSDocumentActions.h>
+#include <libopensimcreator/Platform/IconCodepoints.h>
 #include <libopensimcreator/UI/MeshWarper/MeshWarpingTabContextMenu.h>
 #include <libopensimcreator/UI/MeshWarper/MeshWarpingTabDecorationGenerators.h>
 #include <libopensimcreator/UI/MeshWarper/MeshWarpingTabHover.h>
@@ -33,7 +34,6 @@
 #include <liboscar/Maths/Vec4.h>
 #include <liboscar/Platform/App.h>
 #include <liboscar/Platform/AppSettings.h>
-#include <liboscar/Platform/IconCodepoints.h>
 #include <liboscar/UI/oscimgui.h>
 #include <liboscar/Utils/CStringView.h>
 #include <liboscar/Utils/Typelist.h>
@@ -481,7 +481,7 @@ namespace osc
             {
                 if (ui::draw_menu_item("Mesh File"))
                 {
-                    ActionLoadMeshFile(m_State->getUndoableSharedPtr(), m_DocumentIdentifier);
+                    ActionPromptUserToLoadMeshFile(m_State->getUndoableSharedPtr(), m_DocumentIdentifier);
                 }
                 if (ui::begin_menu("Generated Mesh")) {
                     drawGeneratedMeshOptions(SolidGeometries{});
@@ -489,12 +489,12 @@ namespace osc
                 }
                 if (ui::draw_menu_item("Landmarks from CSV"))
                 {
-                    ActionLoadLandmarksFromCSV(m_State->getUndoableSharedPtr(), m_DocumentIdentifier);
+                    ActionPromptUserToLoadLandmarksFromCSV(m_State->getUndoableSharedPtr(), m_DocumentIdentifier);
                 }
                 if (m_DocumentIdentifier == TPSDocumentInputIdentifier::Source &&
                     ui::draw_menu_item("Non-Participating Landmarks from CSV"))
                 {
-                    ActionLoadNonParticipatingLandmarksFromCSV(m_State->getUndoableSharedPtr());
+                    ActionPromptUserToLoadNonParticipatingLandmarksFromCSV(m_State->getUndoableSharedPtr());
                 }
                 ui::end_popup();
             }
@@ -522,33 +522,33 @@ namespace osc
             {
                 if (ui::draw_menu_item("Mesh to OBJ"))
                 {
-                    ActionTrySaveMeshToObjFile(m_State->getScratchMesh(m_DocumentIdentifier), ObjWriterFlag::Default);
+                    ActionPromptUserToSaveMeshToObjFile(m_State->getScratchMesh(m_DocumentIdentifier), ObjWriterFlag::Default);
                 }
                 if (ui::draw_menu_item("Mesh to OBJ (no normals)"))
                 {
-                    ActionTrySaveMeshToObjFile(m_State->getScratchMesh(m_DocumentIdentifier), ObjWriterFlag::NoWriteNormals);
+                    ActionPromptUserToSaveMeshToObjFile(m_State->getScratchMesh(m_DocumentIdentifier), ObjWriterFlag::NoWriteNormals);
                 }
                 if (ui::draw_menu_item("Mesh to STL"))
                 {
-                    ActionTrySaveMeshToStlFile(m_State->getScratchMesh(m_DocumentIdentifier));
+                    ActionPromptUserToMeshToStlFile(m_State->getScratchMesh(m_DocumentIdentifier));
                 }
                 if (ui::draw_menu_item("Landmarks to CSV"))
                 {
-                    ActionSaveLandmarksToCSV(m_State->getScratch(), m_DocumentIdentifier);
+                    ActionPromptUserToSaveLandmarksToCSV(m_State->getScratch(), m_DocumentIdentifier);
                 }
                 if (ui::draw_menu_item("Landmark Positions to CSV"))
                 {
-                    ActionSaveLandmarksToCSV(m_State->getScratch(), m_DocumentIdentifier, LandmarkCSVFlags::NoHeader | LandmarkCSVFlags::NoNames);
+                    ActionPromptUserToSaveLandmarksToCSV(m_State->getScratch(), m_DocumentIdentifier, LandmarkCSVFlags::NoHeader | LandmarkCSVFlags::NoNames);
                 }
                 if (m_DocumentIdentifier == TPSDocumentInputIdentifier::Source)
                 {
                     if (ui::draw_menu_item("Non-Participating Landmarks to CSV"))
                     {
-                        ActionSaveNonParticipatingLandmarksToCSV(m_State->getScratch());
+                        ActionPromptUserToSaveNonParticipatingLandmarksToCSV(m_State->getScratch());
                     }
                     if (ui::draw_menu_item("Non-Participating Landmark Positions to CSV"))
                     {
-                        ActionSaveNonParticipatingLandmarksToCSV(m_State->getScratch(), LandmarkCSVFlags::NoHeader | LandmarkCSVFlags::NoNames);
+                        ActionPromptUserToSaveNonParticipatingLandmarksToCSV(m_State->getScratch(), LandmarkCSVFlags::NoHeader | LandmarkCSVFlags::NoNames);
                     }
                 }
                 ui::end_popup();

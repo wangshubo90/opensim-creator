@@ -14,6 +14,7 @@
 #include <libopensimcreator/Graphics/MuscleSizingStyle.h>
 #include <libopensimcreator/Graphics/OpenSimDecorationGenerator.h>
 #include <libopensimcreator/Graphics/OpenSimDecorationOptions.h>
+#include <libopensimcreator/Platform/IconCodepoints.h>
 #include <libopensimcreator/Platform/RecentFile.h>
 #include <libopensimcreator/Platform/RecentFiles.h>
 #include <libopensimcreator/Utils/OpenSimHelpers.h>
@@ -35,7 +36,6 @@
 #include <liboscar/Maths/Vec3.h>
 #include <liboscar/Platform/App.h>
 #include <liboscar/Platform/AppMetadata.h>
-#include <liboscar/Platform/IconCodepoints.h>
 #include <liboscar/Platform/Log.h>
 #include <liboscar/Platform/os.h>
 #include <liboscar/UI/IconCache.h>
@@ -350,7 +350,7 @@ void osc::DrawRightClickedComponentContextMenuHeader(const OpenSim::Component& c
 void osc::DrawContextMenuSeparator()
 {
     ui::draw_separator();
-    ui::draw_dummy({0.0f, 3.0f});
+    ui::draw_vertical_spacer(3.0f/15.0f);
 }
 
 void osc::DrawComponentHoverTooltip(const OpenSim::Component& hovered)
@@ -446,12 +446,12 @@ bool osc::DrawWatchOutputMenu(
 
 void osc::DrawSimulationParams(const ParamBlock& params)
 {
-    ui::draw_dummy({0.0f, 1.0f});
+    ui::draw_vertical_spacer(1.0f/15.0f);
     ui::draw_text("parameters:");
     ui::same_line();
     ui::draw_help_marker("The parameters used when this simulation was launched. These must be set *before* running the simulation");
     ui::draw_separator();
-    ui::draw_dummy({0.0f, 2.0f});
+    ui::draw_vertical_spacer(2.0f/15.0f);
 
     ui::set_num_columns(2);
     for (int i = 0, len = params.size(); i < len; ++i)
@@ -473,7 +473,6 @@ void osc::DrawSimulationParams(const ParamBlock& params)
 
 void osc::DrawSearchBar(std::string& out)
 {
-    ui::set_next_item_width(ui::get_content_region_available().x);
     ui::push_style_var(ui::StyleVar::FrameRounding, 5.0f);
     ui::draw_string_input_with_hint("##hirarchtsearchbar", OSC_ICON_SEARCH " search...",  out);
     ui::pop_style_var();
@@ -1010,19 +1009,19 @@ bool osc::DrawMuscleDecorationOptionsEditor(OpenSimDecorationOptions& opts)
     edited = DrawMuscleRenderingOptionsRadioButtions(opts) || edited;
     ui::pop_id();
 
-    ui::draw_dummy({0.0f, 0.25f*ui::get_text_line_height()});
+    ui::draw_vertical_spacer(0.25f);
     ui::push_id(id++);
     ui::draw_text_disabled("Sizing");
     edited = DrawMuscleSizingOptionsRadioButtons(opts) || edited;
     ui::pop_id();
 
-    ui::draw_dummy({0.0f, 0.25f*ui::get_text_line_height()});
+    ui::draw_vertical_spacer(0.25f);
     ui::push_id(id++);
     ui::draw_text_disabled("Color Source");
     edited = DrawMuscleColorSourceOptionsRadioButtons(opts) || edited;
     ui::pop_id();
 
-    ui::draw_dummy({0.0f, 0.25f*ui::get_text_line_height()});
+    ui::draw_vertical_spacer(0.25f);
     ui::push_id(id++);
     ui::draw_text_disabled("Color Scaling");
     edited = DrawMuscleColorScalingOptionsRadioButtons(opts) || edited;
@@ -1059,7 +1058,7 @@ bool osc::DrawOverlayOptionsEditor(OverlayDecorationOptions& opts)
         {
             if (lastGroupLabel)
             {
-                ui::draw_dummy({0.0f, 0.25f*ui::get_text_line_height()});
+                ui::draw_vertical_spacer(0.25f);
             }
             ui::draw_text_disabled(groupLabel);
             lastGroupLabel = groupLabel;
@@ -1112,7 +1111,7 @@ bool osc::DrawAdvancedParamsEditor(
     }
     ui::draw_tooltip_body_only_if_item_hovered("Try to export the 3D scene to a portable DAE file, so that it can be viewed in 3rd-party modelling software, such as Blender");
 
-    ui::draw_dummy({0.0f, 10.0f});
+    ui::draw_vertical_spacer(10.0f/15.0f);
     ui::draw_text("advanced camera properties:");
     ui::draw_separator();
     edited = ui::draw_float_meters_slider("radius", params.camera.radius, 0.0f, 10.0f) || edited;
@@ -1126,7 +1125,7 @@ bool osc::DrawAdvancedParamsEditor(
     edited = ui::draw_float_meters_slider("pan_y", params.camera.focus_point.y, -100.0f, 100.0f) || edited;
     edited = ui::draw_float_meters_slider("pan_z", params.camera.focus_point.z, -100.0f, 100.0f) || edited;
 
-    ui::draw_dummy({0.0f, 10.0f});
+    ui::draw_vertical_spacer(10.0f/15.0f);
     ui::draw_text("advanced scene properties:");
     ui::draw_separator();
     edited = ui::draw_rgb_color_editor("light_color", params.lightColor) || edited;
@@ -1148,7 +1147,7 @@ bool osc::DrawVisualAidsContextMenuContent(ModelRendererParams& params)
     edited = DrawOverlayOptionsEditor(params.overlayOptions) || edited;
 
     // OpenSim-specific extra rendering options
-    ui::draw_dummy({0.0f, 0.25f*ui::get_text_line_height()});
+    ui::draw_vertical_spacer(0.25f);
     ui::draw_text_disabled("OpenSim");
     edited = DrawCustomDecorationOptionCheckboxes(params.decorationOptions) || edited;
 

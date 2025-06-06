@@ -3,6 +3,7 @@
 #include <libopensimcreator/Documents/Model/ModelStateCommit.h>
 #include <libopensimcreator/Documents/Model/UndoableModelActions.h>
 #include <libopensimcreator/Documents/Model/UndoableModelStatePair.h>
+#include <libopensimcreator/Platform/IconCodepoints.h>
 #include <libopensimcreator/Platform/OSCColors.h>
 #include <libopensimcreator/UI/Events/AddMusclePlotEvent.h>
 #include <libopensimcreator/Utils/OpenSimHelpers.h>
@@ -13,7 +14,6 @@
 #include <liboscar/Maths/MathHelpers.h>
 #include <liboscar/Maths/Vec4.h>
 #include <liboscar/Platform/App.h>
-#include <liboscar/Platform/IconCodepoints.h>
 #include <liboscar/Platform/Log.h>
 #include <liboscar/Platform/os.h>
 #include <liboscar/Platform/Widget.h>
@@ -1176,7 +1176,7 @@ namespace
             const auto forwardIt = backwardIt.base();
             const ptrdiff_t idxOfDeleteableEnd = std::distance(m_PreviousPlots.begin(), forwardIt);
 
-            auto shouldDelete = [i = static_cast<ptrdiff_t>(0), idxOfDeleteableEnd](const std::shared_ptr<Plot>& p) mutable
+            auto shouldDelete = [i = 0z, idxOfDeleteableEnd](const std::shared_ptr<Plot>& p) mutable
             {
                 return i++ < idxOfDeleteableEnd && !p->getIsLocked();
             };
@@ -1400,8 +1400,8 @@ namespace
                 }
             },
             {
-                FileDialogFilter::all_files(),
                 csv_file_dialog_filter(),
+                FileDialogFilter::all_files(),
             }
         );
     }

@@ -16,14 +16,18 @@ OSC_BASE_BUILD_TYPE=${OSC_BASE_BUILD_TYPE:-Release}
 OSC_DEPS_BUILD_TYPE=${OSC_DEPS_BUILD_TYPE:-`echo ${OSC_BASE_BUILD_TYPE}`}
 
 # build type for OSC
-OSC_BUILD_TYPE=${OSC_BUILD_TYPE-`echo ${OSC_BASE_BUILD_TYPE}`}
+OSC_BUILD_TYPE=${OSC_BUILD_TYPE:-`echo ${OSC_BASE_BUILD_TYPE}`}
+
+# sets whether the `OSCDEPS_BUILD_ALWAYS` flag is set when building
+# dependencies, which causes the build system to re-check them
+OSC_DEPS_BUILD_ALWAYS=${OSC_DEPS_BUILD_ALWAYS:-OFF}
 
 # maximum number of build jobs to run concurrently
 #
 # defaulted to 1, rather than `sysctl -n hw.physicalcpu`, because OpenSim
 # requires a large  amount of RAM--more than most machines have--to build
 # concurrently, #659
-OSC_BUILD_CONCURRENCY=${OSC_BUILD_CONCURRENCY:-1}
+OSC_BUILD_CONCURRENCY=${OSC_BUILD_CONCURRENCY:-$(sysctl -n hw.ncpu)}
 
 # extra flags to pass into each configuration call to cmake
 #
@@ -32,9 +36,6 @@ OSC_BUILD_CONCURRENCY=${OSC_BUILD_CONCURRENCY:-1}
 OSC_CMAKE_CONFIG_EXTRA=${OSC_CMAKE_CONFIG_EXTRA:-""}
 
 # which OSC build target to build
-#
-#     osc      just build the osc binary
-#     package  package everything into a .dmg installer
 OSC_BUILD_TARGET=${OSC_BUILD_TARGET:-package}
 
 set +x
@@ -66,23 +67,24 @@ python3 --version
 echo "----- building OSC's dependencies -----"
 cmake \
     -S third_party \
-    -B "osc-deps-build" \
+    -B third_party-build \
     -DCMAKE_BUILD_TYPE=${OSC_DEPS_BUILD_TYPE} \
-    -DCMAKE_INSTALL_PREFIX="osc-deps-install" \
+    -DCMAKE_INSTALL_PREFIX=third_party-install \
+    -DOSCDEPS_BUILD_ALWAYS=${OSC_DEPS_BUILD_ALWAYS} \
     ${OSC_CMAKE_CONFIG_EXTRA}
-cmake --build "osc-deps-build" -j${OSC_BUILD_CONCURRENCY}
+cmake --build third_party-build --verbose -j${OSC_BUILD_CONCURRENCY}
 
 echo "----- building OSC -----"
 cmake \
     -S . \
-    -B "osc-build" \
+    -B "build/" \
     -DCMAKE_BUILD_TYPE=${OSC_BUILD_TYPE} \
-    -DCMAKE_PREFIX_PATH="${PWD}/osc-deps-install" \
+    -DCMAKE_PREFIX_PATH="${PWD}/third_party-install" \
     ${OSC_CMAKE_CONFIG_EXTRA}
-cmake --build "osc-build" -j${OSC_BUILD_CONCURRENCY}
+cmake --build "build/" --verbose -j${OSC_BUILD_CONCURRENCY}
 
 # ensure tests pass
-ctest --test-dir osc-build --output-on-failure -j${OSC_BUILD_CONCURRENCY}
+ctest --test-dir build/ --output-on-failure -j${OSC_BUILD_CONCURRENCY}
 
 # build final package
 
@@ -91,8 +93,9 @@ ctest --test-dir osc-build --output-on-failure -j${OSC_BUILD_CONCURRENCY}
 for i in {1..8}; do
     set +e
     cmake \
-        --build "osc-build" \
+        --build "build/" \
         --target ${OSC_BUILD_TARGET} \
+        --verbose \
         -j${OSC_BUILD_CONCURRENCY} && break ; sleep 2
     set -e
 done

@@ -41,14 +41,12 @@
 #include <liboscar/Platform/Cursor.h>
 #include <liboscar/Platform/CursorShape.h>
 #include <liboscar/Platform/Events.h>
-#include <liboscar/Platform/IconCodepoints.h>
 #include <liboscar/Platform/os.h>
 #include <liboscar/Platform/PhysicalKeyModifier.h>
 #include <liboscar/Platform/ResourceLoader.h>
 #include <liboscar/Platform/ResourcePath.h>
 #include <liboscar/Platform/WindowID.h>
 #include <liboscar/Shims/Cpp23/ranges.h>
-#include <liboscar/Shims/Cpp23/utility.h>
 #include <liboscar/UI/Detail/ImGuizmo.h>
 #include <liboscar/Utils/Algorithms.h>
 #include <liboscar/Utils/Assertions.h>
@@ -259,6 +257,8 @@ static_assert(osc::ui::gizmo_annotation_offset() == ImGuizmo::AnnotationOffset()
 
 namespace
 {
+    constexpr float c_default_base_font_pixel_size = 15.0f;
+
     constexpr std::string_view c_ui_vertex_shader_src = R"(
         #version 330 core
 
@@ -314,7 +314,7 @@ namespace
         Vec2i dims;
         io.Fonts->GetTexDataAsRGBA32(&pixel_data, &dims.x, &dims.y);
         io.Fonts->SetTexID(to_imgui_texture_id(texture_id));
-        const size_t num_bytes = static_cast<size_t>(dims.x)*static_cast<size_t>(dims.y)*static_cast<size_t>(4);
+        const size_t num_bytes = static_cast<size_t>(dims.x)*static_cast<size_t>(dims.y)*4uz;
 
         Texture2D rv{
             dims,
@@ -369,9 +369,9 @@ namespace
         }
     }
 
-    struct OscarImguiBackendData final {
+    struct UiGraphicsContextData final {
 
-        OscarImguiBackendData()
+        UiGraphicsContextData()
         {
             ui_material.set_transparent(true);
             ui_material.set_cull_mode(CullMode::Off);
@@ -389,10 +389,10 @@ namespace
 
     // Backend data stored in io.BackendRendererUserData to allow support for multiple Dear ImGui contexts
     // It is STRONGLY preferred that you use docking branch with multi-viewports (== single Dear ImGui context + multiple windows) instead of multiple Dear ImGui contexts.
-    OscarImguiBackendData* get_graphics_backend_data()
+    UiGraphicsContextData* get_graphics_backend_data()
     {
         if (ImGui::GetCurrentContext()) {
-            return static_cast<OscarImguiBackendData*>(ImGui::GetIO().BackendRendererUserData);
+            return static_cast<UiGraphicsContextData*>(ImGui::GetIO().BackendRendererUserData);
         }
         else {
             return nullptr;
@@ -418,7 +418,7 @@ namespace
     }
 
     void render_draw_command(
-        OscarImguiBackendData& bd,
+        UiGraphicsContextData& bd,
         const ImDrawData& draw_data,
         const ImDrawList&,
         Mesh& mesh,
@@ -477,7 +477,7 @@ namespace
     }
 
     void render_drawlist(
-        OscarImguiBackendData& bd,
+        UiGraphicsContextData& bd,
         const ImDrawData& draw_data,
         ImDrawList& draw_list,
         RenderTexture* maybe_target)
@@ -521,7 +521,7 @@ namespace
     template<SameAsAnyOf<Texture2D, RenderTexture> Texture>
     ImTextureID allocate_texture_for_current_frame(const Texture& texture)
     {
-        OscarImguiBackendData* bd = get_graphics_backend_data();
+        UiGraphicsContextData* bd = get_graphics_backend_data();
         OSC_ASSERT(bd != nullptr && "no oscar ImGui renderer backend was available to shutdown - this is a developer error");
         const UID texture_uid = bd->textures_allocated_this_frame.try_emplace(UID{}, texture).first->first;
         return to_imgui_texture_id(texture_uid);
@@ -547,14 +547,14 @@ namespace
         OSC_ASSERT(io.BackendRendererUserData == nullptr && "an oscar ImGui renderer backend is already initialized - this is a developer error (double-initialization)");
 
         // init backend data
-        io.BackendRendererUserData = static_cast<void*>(new OscarImguiBackendData{});
+        io.BackendRendererUserData = static_cast<void*>(new UiGraphicsContextData{});
         io.BackendRendererName = "imgui_impl_osc";
         io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
     }
 
     void graphics_backend_shutdown()
     {
-        OscarImguiBackendData* bd = get_graphics_backend_data();
+        UiGraphicsContextData* bd = get_graphics_backend_data();
         OSC_ASSERT(bd != nullptr && "no oscar ImGui renderer backend was available to shutdown - this is a developer error (double-free)");
 
         // shutdown platform interface
@@ -571,7 +571,7 @@ namespace
     {
         // `ImGui_ImplOpenGL3_CreateDeviceObjects` is now part of constructing `OscarImguiBackendData`
 
-        OscarImguiBackendData* bd = get_graphics_backend_data();
+        UiGraphicsContextData* bd = get_graphics_backend_data();
         OSC_ASSERT(bd != nullptr && "no oscar ImGui renderer backend was available - this is a developer error");
         bd->textures_allocated_this_frame.clear();
         if (not bd->font_texture) {
@@ -582,14 +582,14 @@ namespace
 
     void graphics_backend_mark_fonts_for_reupload()
     {
-        if (OscarImguiBackendData* bd = get_graphics_backend_data()) {
+        if (UiGraphicsContextData* bd = get_graphics_backend_data()) {
             bd->font_texture.reset();
         }
     }
 
     void graphics_backend_render(ImDrawData* draw_data, RenderTexture* maybe_target = nullptr)
     {
-        OscarImguiBackendData* bd = get_graphics_backend_data();
+        UiGraphicsContextData* bd = get_graphics_backend_data();
         OSC_ASSERT(bd != nullptr && "no oscar ImGui renderer backend was available to shutdown - this is a developer error");
 
         setup_camera_view_matrix(*draw_data, bd->camera);
@@ -676,7 +676,7 @@ namespace
             }
 
             for (const auto& [source_flag, destination_flag] : mappings) {
-                const auto source_index = std::countr_zero(std::bit_floor(cpp23::to_underlying(source_flag)));
+                const auto source_index = std::countr_zero(std::bit_floor(std::to_underlying(source_flag)));
                 lut_[source_index] = destination_flag;
             }
         }
@@ -697,6 +697,59 @@ namespace
         std::array<DestinationImGuiFlagsType, num_flags<SourceFlagType>()> lut_{};
     };
 }
+
+class osc::ui::ContextConfiguration::Impl final {
+public:
+    struct MainFontConfig final {
+        ResourcePath path;
+    };
+
+    struct IconFontConfig final {
+        ResourcePath path;
+        ClosedInterval<char16_t> codepoint_range;
+    };
+
+    struct CustomFontConfig final {
+        MainFontConfig main_font;
+        IconFontConfig icon_font;
+    };
+
+    Impl() = default;
+
+    void set_base_imgui_ini_config_resource(ResourcePath path)
+    {
+        base_imgui_ini_config_ = std::move(path);
+    }
+
+    void set_main_font_as_standard_plus_icon_font(
+        ResourcePath main_font_ttf_path,
+        ResourcePath icon_font_ttf_path,
+        ClosedInterval<char16_t> codepoint_range)
+    {
+        custom_font_config_ = CustomFontConfig{
+            .main_font = {.path = std::move(main_font_ttf_path)},
+            .icon_font = {.path = std::move(icon_font_ttf_path), .codepoint_range = codepoint_range},
+        };
+    }
+
+    const ResourcePath* base_imgui_ini_config() const
+    {
+        return base_imgui_ini_config_ ? &base_imgui_ini_config_.value() : nullptr;
+    }
+
+    const MainFontConfig* main_font_config() const
+    {
+        return custom_font_config_ ? &custom_font_config_->main_font: nullptr;
+    }
+
+    const IconFontConfig* icon_font_config() const
+    {
+        return custom_font_config_ ? &custom_font_config_->icon_font: nullptr;
+    }
+private:
+    std::optional<ResourcePath> base_imgui_ini_config_;
+    std::optional<CustomFontConfig> custom_font_config_;
+};
 
 namespace
 {
@@ -729,11 +782,14 @@ namespace
     }
 
     // The internal backend data associated with one UI context.
-    struct BackendData final {
+    struct UiContextData final {
 
-        explicit BackendData(WindowID window_id) :
+        explicit UiContextData(CopyOnUpdPtr<ui::ContextConfiguration::Impl> config, WindowID window_id) :
+            CallerConfig{std::move(config)},
             Window{window_id}
         {}
+
+        CopyOnUpdPtr<ui::ContextConfiguration::Impl>     CallerConfig;
 
         WindowID                                         Window;
         WindowID                                         ImeWindow;  // important: used for UI's textual inputs (e.g. `ImGui::InputText`)
@@ -753,19 +809,19 @@ namespace
     // It is STRONGLY preferred that you use docking branch with multi-viewports (== single Dear ImGui context + multiple windows) instead of multiple Dear ImGui contexts.
     // FIXME: multi-context support is not well tested and probably dysfunctional in this backend.
     // FIXME: some shared resources (mouse cursor shape, gamepad) are mishandled when using multi-context.
-    BackendData* try_get_ui_backend_data(ImGuiContext* context)
+    UiContextData* try_get_ui_backend_data(ImGuiContext* context)
     {
-        return context ? static_cast<BackendData*>(context->IO.BackendPlatformUserData) : nullptr;
+        return context ? static_cast<UiContextData*>(context->IO.BackendPlatformUserData) : nullptr;
     }
 
-    BackendData* try_get_ui_backend_data()
+    UiContextData* try_get_ui_backend_data()
     {
         return try_get_ui_backend_data(ImGui::GetCurrentContext());
     }
 
-    BackendData& get_backend_data()
+    UiContextData& get_backend_data()
     {
-        BackendData* bd = try_get_ui_backend_data();
+        UiContextData* bd = try_get_ui_backend_data();
         IM_ASSERT(bd != nullptr && "Did you call ImGui_ImplOscar_Init()?");
         return *bd;
     }
@@ -796,7 +852,7 @@ namespace
 
     const char* ui_get_clipboard_text(ImGuiContext* context)
     {
-        BackendData* bd = try_get_ui_backend_data(context);
+        UiContextData* bd = try_get_ui_backend_data(context);
         bd->ClipboardText = get_clipboard_text();
         return bd->ClipboardText.c_str();
     }
@@ -806,7 +862,10 @@ namespace
         set_clipboard_text(text);
     }
 
-    void load_imgui_config(const std::filesystem::path& user_data_directory, ResourceLoader& loader)
+    void load_imgui_config(
+        const std::filesystem::path& user_data_directory,
+        ResourceLoader& loader,
+        const ui::ContextConfiguration::Impl& config)
     {
         ImGuiIO& io = ImGui::GetIO();
         io.ConfigFlags = ImGuiConfigFlags_DockingEnable;
@@ -817,10 +876,10 @@ namespace
         // load application-level ImGui settings, then the user one,
         // so that the user settings takes precedence
         {
-            // TODO: this should be provided externally by osc/libopensimcreator, so that
-            // OpenSim-independent codebases aren't dependent on it
-            if (loader.resource_exists("OpenSimCreator/imgui_base_config.ini")) {
-                const std::string base_ini_data = loader.slurp("OpenSimCreator/imgui_base_config.ini");
+            // Load the "base" config, which is the configuration that's loaded if the
+            // user hasn't got a configuration.
+            if (const auto* base_path = config.base_imgui_ini_config(); base_path and loader.resource_exists(*base_path)) {
+                const std::string base_ini_data = loader.slurp(*base_path);
                 ImGui::LoadIniSettingsFromMemory(base_ini_data.data(), base_ini_data.size());
             }
 
@@ -833,42 +892,56 @@ namespace
         }
     }
 
-    void setup_scaling_dependent_fonts_and_styling(App& app)
+    void setup_scaling_dependent_rendering_fonts_and_styling(
+        App& app,
+        const ui::ContextConfiguration::Impl& config)
     {
         ImGuiIO& io = ImGui::GetIO();
         const float scale = app.main_window_device_pixel_ratio();
 
-        // ensure imgui-to-renderer scaling is correct
+        // Setup ImGui-to-renderer scaling for HighDPI support.
         io.DisplayFramebufferScale = {scale, scale};
 
-        // setup fonts to use correct pixel scale
-        ResourceLoader loader = app.upd_resource_loader();
-        if (loader.resource_exists("oscar/fonts/Ruda-Bold.ttf")) {
-            io.Fonts->Clear();
-            io.FontDefault = nullptr;
+        // Setup fonts: ensure they have they have the correct pixel scaling for HighDPI.
+        {
+            ImFontConfig base_font_config;
+            base_font_config.SizePixels = c_default_base_font_pixel_size;
+            base_font_config.RasterizerDensity = scale;
+            base_font_config.PixelSnapH = true;
+            base_font_config.FontDataOwnedByAtlas = true;
 
-            ImFontConfig base_config;
-            base_config.SizePixels = 15.0f;
-            base_config.RasterizerDensity = scale;
-            base_config.PixelSnapH = true;
-            base_config.FontDataOwnedByAtlas = true;
-            add_resource_as_font(loader, base_config, *io.Fonts, "oscar/fonts/Ruda-Bold.ttf");
+            ResourceLoader loader = app.upd_resource_loader();
+            bool should_build_and_reupload = false;
 
-            // add icon support
-            if (loader.resource_exists("oscar/fonts/OpenSimCreatorIconFont.ttf")) {
-                ImFontConfig config = base_config;
-                config.MergeMode = true;
-                config.GlyphMinAdvanceX = floor(1.5f * config.SizePixels);
-                config.GlyphMaxAdvanceX = floor(1.5f * config.SizePixels);
-                static constexpr auto c_icon_ranges = std::to_array<ImWchar>({ OSC_ICON_MIN, OSC_ICON_MAX, 0 });
-                add_resource_as_font(loader, config, *io.Fonts, "oscar/fonts/OpenSimCreatorIconFont.ttf", c_icon_ranges.data());
+            // Main font support
+            if (const auto* main_font = config.main_font_config(); main_font and loader.resource_exists(main_font->path)) {
+                io.Fonts->Clear();
+                io.FontDefault = nullptr;
+
+                add_resource_as_font(loader, base_font_config, *io.Fonts, main_font->path);
+                should_build_and_reupload = true;
             }
 
-            io.Fonts->Build();
-            graphics_backend_mark_fonts_for_reupload();
+            // Add icon support
+            if (const auto* icon_font = config.icon_font_config(); should_build_and_reupload and icon_font and loader.resource_exists(icon_font->path)) {
+                ImFontConfig icon_font_config = base_font_config;
+                icon_font_config.MergeMode = true;
+                icon_font_config.GlyphMinAdvanceX = floor(1.5f * icon_font_config.SizePixels);
+                icon_font_config.GlyphMaxAdvanceX = floor(1.5f * icon_font_config.SizePixels);
+                static_assert(sizeof(decltype(icon_font->codepoint_range.lower)) == sizeof(ImWchar));
+                const auto c_icon_ranges = std::to_array<ImWchar>({icon_font->codepoint_range.lower, icon_font->codepoint_range.upper, 0 });
+
+                add_resource_as_font(loader, icon_font_config, *io.Fonts, icon_font->path, c_icon_ranges.data());
+                should_build_and_reupload = true;
+            }
+
+            if (should_build_and_reupload) {
+                io.Fonts->Build();
+                graphics_backend_mark_fonts_for_reupload();
+            }
         }
 
-        // ensure style is scaled correctly
+        // Setup visual styling/theme.
         {
             ImGui::GetStyle() = ImGuiStyle{};
             ui::apply_dark_theme();
@@ -884,7 +957,7 @@ namespace
     void ImGui_ImplOscar_PlatformSetImeData(ImGuiContext*, ImGuiViewport* viewport, ImGuiPlatformImeData* ime_data)
     {
         App& app = App::upd();
-        BackendData* bd = try_get_ui_backend_data();
+        UiContextData* bd = try_get_ui_backend_data();
         WindowID viewport_window{viewport->PlatformHandle};
 
         if (bd->ImeWindow and (not ime_data->WantVisible or bd->ImeWindow != viewport_window)) {
@@ -910,7 +983,7 @@ namespace
     bool ImGui_ImplOscar_ProcessEvent(Event& e)
     {
         ImGuiIO& io = ImGui::GetIO();
-        BackendData* bd = try_get_ui_backend_data();
+        UiContextData* bd = try_get_ui_backend_data();
 
         switch (e.type()) {
         case EventType::MouseMove: {
@@ -1029,17 +1102,17 @@ namespace
         }
     }
 
-    void ImGui_ImplOscar_Init(WindowID window_id)
+    void ImGui_ImplOscar_Init(CopyOnUpdPtr<ui::ContextConfiguration::Impl> config, WindowID window_id)
     {
         ImGuiIO& io = ImGui::GetIO();
         OSC_ASSERT_ALWAYS(io.BackendPlatformUserData == nullptr && "Already initialized a platform backend!");
 
         // init `BackendData` and setup `ImGuiIO` pointers etc.
-        io.BackendPlatformUserData = static_cast<void*>(new BackendData{window_id});
+        io.BackendPlatformUserData = static_cast<void*>(new UiContextData{std::move(config), window_id});
         io.BackendPlatformName = "imgui_impl_oscar";
-        io.BackendFlags |= ImGuiBackendFlags_HasMouseCursors;           // We can honor GetMouseCursor() values (optional)
-        io.BackendFlags |= ImGuiBackendFlags_HasSetMousePos;            // We can honor io.WantSetMousePos requests (optional, rarely used)
-        io.ConfigDebugHighlightIdConflicts = false;  // disable this highlight (annoying for users, #964)
+        io.BackendFlags |= ImGuiBackendFlags_HasMouseCursors;  // We can honor GetMouseCursor() values (optional)
+        io.BackendFlags |= ImGuiBackendFlags_HasSetMousePos;   // We can honor io.WantSetMousePos requests (optional, rarely used)
+        io.ConfigDebugHighlightIdConflicts = false;            // Disable this highlight (annoying for users, #964)
 
         ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
         platform_io.Platform_SetClipboardTextFn = ui_set_clipboard_text;
@@ -1062,7 +1135,7 @@ namespace
 
     void ImGui_ImplOscar_Shutdown(App& app)
     {
-        BackendData* bd = try_get_ui_backend_data();
+        UiContextData* bd = try_get_ui_backend_data();
         OSC_ASSERT_ALWAYS(bd != nullptr && "No platform backend to shutdown, or already shutdown?");
 
         if (bd->CurrentCustomCursor) {
@@ -1081,7 +1154,7 @@ namespace
     void ImGui_ImplSDL2_UpdateMouseData()
     {
         App& app = App::upd();
-        BackendData* bd = try_get_ui_backend_data();
+        UiContextData* bd = try_get_ui_backend_data();
         ImGuiIO& io = ImGui::GetIO();
 
         // We forward mouse input when hovered or captured (via SDL_MOUSEMOTION) or when focused (below)
@@ -1149,7 +1222,7 @@ namespace
             return;  // ui cannot change the mouse cursor
         }
 
-        BackendData& bd = get_backend_data();
+        UiContextData& bd = get_backend_data();
         const auto oscar_cursor = to<CursorShape>(ImGui::GetMouseCursor());
 
         if (oscar_cursor != bd.CurrentCustomCursor) {
@@ -1163,7 +1236,7 @@ namespace
 
     void ImGui_ImplOscar_NewFrame(App& app)
     {
-        BackendData& bd = get_backend_data();
+        UiContextData& bd = get_backend_data();
         ImGuiIO& io = ImGui::GetIO();
 
         // Setup `DisplaySize` and `DisplayFramebufferScale`
@@ -1185,7 +1258,7 @@ namespace
         // Update display scale (e.g. when user changes DPI settings or moves the
         // application window to a display that has a different DPI)
         if (std::exchange(bd.WantChangeDisplayScale, false)) {
-            setup_scaling_dependent_fonts_and_styling(app);
+            setup_scaling_dependent_rendering_fonts_and_styling(app, *bd.CallerConfig);
         }
 
         // Update `DeltaTime`
@@ -1662,7 +1735,7 @@ struct osc::Converter<ui::StyleVar, ImGuiStyleVar> final {
         case ui::StyleVar::ItemInnerSpacing: return ImGuiStyleVar_ItemInnerSpacing;
         case ui::StyleVar::ItemSpacing:      return ImGuiStyleVar_ItemSpacing;
         case ui::StyleVar::TabRounding:      return ImGuiStyleVar_TabRounding;
-        case ui::StyleVar::PanelPadding:    return ImGuiStyleVar_WindowPadding;
+        case ui::StyleVar::PanelPadding:     return ImGuiStyleVar_WindowPadding;
         default:                             return ImGuiStyleVar_Alpha;
         }
     }
@@ -1697,46 +1770,46 @@ struct osc::Converter<ImGuiTableColumnSortSpecs, ui::TableColumnSortSpec> final 
     }
 };
 
-void osc::ui::context::init(App& app)
+osc::ui::ContextConfiguration::ContextConfiguration() :
+    impl_{make_cow<Impl>()}
+{}
+
+void osc::ui::ContextConfiguration::set_base_imgui_ini_config_resource(ResourcePath path)
 {
-    // ensure ImGui uses the same allocator as the rest of
-    // our (C++ stdlib) application
-    ImGui::SetAllocatorFunctions(
-        [](size_t count, [[maybe_unused]] void* user_data) { return ::operator new(count); },
-        [](void* ptr, [[maybe_unused]] void* user_data) { ::operator delete(ptr); }
+    impl_.upd()->set_base_imgui_ini_config_resource(std::move(path));
+}
+
+void osc::ui::ContextConfiguration::set_main_font_as_standard_plus_icon_font(
+    ResourcePath main_font_ttf_path,
+    ResourcePath icon_font_ttf_path,
+    ClosedInterval<char16_t> codepoint_range)
+{
+    impl_.upd()->set_main_font_as_standard_plus_icon_font(
+        std::move(main_font_ttf_path),
+        std::move(icon_font_ttf_path),
+        codepoint_range
     );
-
-    // init ImGui top-level context
-    ImGui::CreateContext();
-
-    // load `imgui.ini`
-    load_imgui_config(app.user_data_directory(), app.upd_resource_loader());
-
-    // setup fonts + styling
-    setup_scaling_dependent_fonts_and_styling(app);
-
-    // init ImGui for oscar
-    ImGui_ImplOscar_Init(app.main_window_id());
-
-    // init ImGui for oscar's graphics backend (OpenGL)
-    graphics_backend_init();
-
-    // init extra parts (plotting, gizmos, etc.)
-    ImPlot::CreateContext();
-    ImGuizmo::CreateContext();
 }
 
-void osc::ui::context::shutdown(App& app)
+osc::ui::Context::Context(App& app, ContextConfiguration configuration)
 {
-    ImGuizmo::DestroyContext();
-    ImPlot::DestroyContext();
-
-    graphics_backend_shutdown();
-    ImGui_ImplOscar_Shutdown(app);
-    ImGui::DestroyContext();
+    init(app, std::move(configuration).impl());
 }
 
-bool osc::ui::context::on_event(Event& ev)
+osc::ui::Context::~Context() noexcept
+{
+    shutdown(App::upd());
+}
+
+void osc::ui::Context::reset()
+{
+    App& app = App::upd();
+    const auto config = get_backend_data().CallerConfig;
+    shutdown(app);
+    init(app, config);
+}
+
+bool osc::ui::Context::on_event(Event& ev)
 {
     ImGui_ImplOscar_ProcessEvent(ev);
 
@@ -1751,8 +1824,10 @@ bool osc::ui::context::on_event(Event& ev)
     return ImGui::GetIO().WantCaptureMouse and cpp23::contains(mouse_event_types, ev.type());
 }
 
-void osc::ui::context::on_start_new_frame(App& app)
+void osc::ui::Context::on_start_new_frame()
 {
+    App& app = App::upd();
+
     graphics_backend_on_start_new_frame();
     ImGui_ImplOscar_NewFrame(app);
     ImGui::NewFrame();
@@ -1761,7 +1836,7 @@ void osc::ui::context::on_start_new_frame(App& app)
     ImGuizmo::BeginFrame();
 }
 
-void osc::ui::context::render()
+void osc::ui::Context::render()
 {
     {
         OSC_PERF("ImGui::Render()");
@@ -1772,6 +1847,49 @@ void osc::ui::context::render()
         OSC_PERF("graphics_backend::render(ImGui::GetDrawData())");
         graphics_backend_render(ImGui::GetDrawData());
     }
+}
+
+void osc::ui::Context::init(
+    App& app,
+    CopyOnUpdPtr<ui::ContextConfiguration::Impl> config)
+{
+    OSC_ASSERT(ImGui::GetCurrentContext() == nullptr && "a global UI context has already been initialized");
+
+    // ensure ImGui uses the same allocator as the rest of
+    // our (C++ stdlib) application
+    ImGui::SetAllocatorFunctions(
+        [](size_t count, [[maybe_unused]] void* user_data) { return ::operator new(count); },
+        [](void* ptr, [[maybe_unused]] void* user_data) { ::operator delete(ptr); }
+    );
+
+    // init ImGui top-level context
+    ImGui::CreateContext();
+
+    // load `imgui.ini`
+    load_imgui_config(app.user_data_directory(), app.upd_resource_loader(), *config);
+
+    // setup fonts + styling
+    setup_scaling_dependent_rendering_fonts_and_styling(app, *config);
+
+    // init ImGui for oscar
+    ImGui_ImplOscar_Init(config, app.main_window_id());
+
+    // init ImGui for oscar's graphics backend (OpenGL)
+    graphics_backend_init();
+
+    // init extra parts (plotting, gizmos, etc.)
+    ImPlot::CreateContext();
+    ImGuizmo::CreateContext();
+}
+
+void osc::ui::Context::shutdown(App& app)
+{
+    ImGuizmo::DestroyContext();
+    ImPlot::DestroyContext();
+
+    graphics_backend_shutdown();
+    ImGui_ImplOscar_Shutdown(app);
+    ImGui::DestroyContext();
 }
 
 void osc::ui::align_text_to_frame_padding()
@@ -2017,6 +2135,11 @@ bool osc::ui::draw_small_button(CStringView label)
     return ImGui::SmallButton(label.c_str());
 }
 
+bool osc::ui::draw_arrow_down_button(CStringView label)
+{
+    return ImGui::ArrowButton(label.c_str(), ImGuiDir_Down);
+}
+
 bool osc::ui::draw_invisible_button(CStringView label, Vec2 size)
 {
     return ImGui::InvisibleButton(label.c_str(), size);
@@ -2035,6 +2158,11 @@ bool osc::ui::draw_collapsing_header(CStringView label, TreeNodeFlags flags)
 void osc::ui::draw_dummy(const Vec2& size)
 {
     ImGui::Dummy(size);
+}
+
+void osc::ui::draw_vertical_spacer(float num_lines)
+{
+    ImGui::Dummy({0.0f, num_lines * get_text_line_height_in_current_panel()});
 }
 
 bool osc::ui::begin_combobox(CStringView label, CStringView preview_value, ComboFlags flags)
@@ -2501,19 +2629,28 @@ Color osc::ui::get_color(ColorVar var)
     return ImGui::GetStyle().Colors[to<ImGuiCol>(var)];
 }
 
-float osc::ui::get_text_line_height()
+float osc::ui::get_text_line_height_in_current_panel()
 {
+    OSC_ASSERT_ALWAYS(ImGui::GetCurrentWindow() && "not currently in a panel (use ui::get_font_base_size if you want a panel-independent size)");
     return ImGui::GetTextLineHeight();
 }
 
-float osc::ui::get_text_line_height_with_spacing()
+float osc::ui::get_text_line_height_with_spacing_in_current_panel()
 {
+    OSC_ASSERT_ALWAYS(ImGui::GetCurrentWindow() && "not currently in a panel (use ui::get_font_base_size if you want a panel-independent size)");
     return ImGui::GetTextLineHeightWithSpacing();
 }
 
-float osc::ui::get_font_size()
+float osc::ui::get_font_base_size()
 {
-    return ImGui::GetFontSize();
+    // HACK: context should be set up to return this, but font initialization is lazy in imgui
+    return c_default_base_font_pixel_size;
+}
+
+float osc::ui::get_font_base_size_with_spacing()
+{
+    // HACK: context should be set up to return this, but font initialization is lazy in imgui
+    return c_default_base_font_pixel_size + ImGui::GetStyle().ItemSpacing.y;
 }
 
 Vec2 osc::ui::calc_text_size(CStringView text, bool hide_text_after_double_hash)
@@ -2935,26 +3072,18 @@ Rect osc::ui::content_region_avail_as_screen_rect()
     return Rect{top_left, top_left + ui::get_content_region_available()};
 }
 
-void osc::ui::draw_image(const Texture2D& texture)
-{
-    draw_image(texture, texture.device_independent_dimensions());
-}
-
-void osc::ui::draw_image(const Texture2D& texture, Vec2 dimensions)
-{
-    const Vec2 uv0 = {0.0f, 1.0f};
-    const Vec2 uv1 = {1.0f, 0.0f};
-    draw_image(texture, dimensions, uv0, uv1);
-}
-
 void osc::ui::draw_image(
     const Texture2D& texture,
-    Vec2 dimensions,
-    Vec2 top_left_texture_coordinate,
-    Vec2 bottom_right_texture_coordinate)
+    std::optional<Vec2> dimensions,
+    const Rect& region_uv_coordinates)
 {
+    if (not dimensions) {
+        dimensions = texture.device_independent_dimensions();
+    }
+    const Vec2 top_left = {region_uv_coordinates.p1.x, 1.0f - region_uv_coordinates.p1.y};
+    const Vec2 bottom_right = {region_uv_coordinates.p2.x, 1.0f - region_uv_coordinates.p2.y};
     const auto handle = graphics_backend_allocate_texture_for_current_frame(texture);
-    ImGui::Image(handle, dimensions, top_left_texture_coordinate, bottom_right_texture_coordinate);
+    ImGui::Image(handle, *dimensions, top_left, bottom_right);
 }
 
 void osc::ui::draw_image(const RenderTexture& texture)
@@ -3108,7 +3237,7 @@ void osc::ui::draw_tooltip_header_text(CStringView content)
 
 void osc::ui::draw_tooltip_description_spacer()
 {
-    ui::draw_dummy({0.0f, 1.0f});
+    ui::draw_vertical_spacer(1.0f/15.0f);
 }
 
 void osc::ui::draw_tooltip_description_text(CStringView content)
@@ -3699,10 +3828,13 @@ bool osc::ui::draw_gizmo_op_selector(
     Gizmo& gizmo,
     bool can_translate,
     bool can_rotate,
-    bool can_scale)
+    bool can_scale,
+    CStringView translate_button_text,
+    CStringView rotate_button_text,
+    CStringView scale_button_text)
 {
     GizmoOperation op = gizmo.operation();
-    if (draw_gizmo_op_selector(op, can_translate, can_rotate, can_scale)) {
+    if (draw_gizmo_op_selector(op, can_translate, can_rotate, can_scale, translate_button_text, rotate_button_text, scale_button_text)) {
         gizmo.set_operation(op);
         return true;
     }
@@ -3713,7 +3845,10 @@ bool osc::ui::draw_gizmo_op_selector(
     GizmoOperation& op,
     bool can_translate,
     bool can_rotate,
-    bool can_scale)
+    bool can_scale,
+    CStringView translate_button_text,
+    CStringView rotate_button_text,
+    CStringView scale_button_text)
 {
     bool rv = false;
 
@@ -3726,7 +3861,7 @@ bool osc::ui::draw_gizmo_op_selector(
             ui::push_style_color(ColorVar::Button, Color::muted_blue());
             ++num_colors_pushed;
         }
-        if (ui::draw_button(OSC_ICON_ARROWS_ALT)) {
+        if (ui::draw_button(translate_button_text)) {
             if (op != GizmoOperation::Translate) {
                 op = GizmoOperation::Translate;
                 rv = true;
@@ -3742,7 +3877,7 @@ bool osc::ui::draw_gizmo_op_selector(
             ui::push_style_color(ColorVar::Button, Color::muted_blue());
             ++num_colors_pushed;
         }
-        if (ui::draw_button(OSC_ICON_REDO)) {
+        if (ui::draw_button(rotate_button_text)) {
             if (op != GizmoOperation::Rotate) {
                 op = GizmoOperation::Rotate;
                 rv = true;
@@ -3758,7 +3893,7 @@ bool osc::ui::draw_gizmo_op_selector(
             ui::push_style_color(ColorVar::Button, Color::muted_blue());
             ++num_colors_pushed;
         }
-        if (ui::draw_button(OSC_ICON_EXPAND_ARROWS_ALT)) {
+        if (ui::draw_button(scale_button_text)) {
             if (op != GizmoOperation::Scale) {
                 op = GizmoOperation::Scale;
                 rv = true;
@@ -3914,63 +4049,60 @@ namespace
 {
     constexpr ImPlotFlags to_ImPlotFlags(plot::PlotFlags flags)
     {
-        static_assert(cpp23::to_underlying(plot::PlotFlags::NoTitle) == ImPlotFlags_NoTitle);
-        static_assert(cpp23::to_underlying(plot::PlotFlags::NoLegend) == ImPlotFlags_NoLegend);
-        static_assert(cpp23::to_underlying(plot::PlotFlags::NoMenus) == ImPlotFlags_NoMenus);
-        static_assert(cpp23::to_underlying(plot::PlotFlags::NoBoxSelect) == ImPlotFlags_NoBoxSelect);
-        static_assert(cpp23::to_underlying(plot::PlotFlags::NoFrame) == ImPlotFlags_NoFrame);
-        static_assert(cpp23::to_underlying(plot::PlotFlags::NoInputs) == ImPlotFlags_NoInputs);
+        static_assert(std::to_underlying(plot::PlotFlags::NoTitle) == ImPlotFlags_NoTitle);
+        static_assert(std::to_underlying(plot::PlotFlags::NoLegend) == ImPlotFlags_NoLegend);
+        static_assert(std::to_underlying(plot::PlotFlags::NoMenus) == ImPlotFlags_NoMenus);
+        static_assert(std::to_underlying(plot::PlotFlags::NoBoxSelect) == ImPlotFlags_NoBoxSelect);
+        static_assert(std::to_underlying(plot::PlotFlags::NoFrame) == ImPlotFlags_NoFrame);
+        static_assert(std::to_underlying(plot::PlotFlags::NoInputs) == ImPlotFlags_NoInputs);
         return static_cast<ImPlotFlags>(flags);
     }
 
     constexpr ImPlotStyleVar to_ImPlotStyleVar(plot::PlotStyleVar var)
     {
         static_assert(num_options<plot::PlotStyleVar>() == 4);
-
         switch (var) {
         case plot::PlotStyleVar::FitPadding:        return ImPlotStyleVar_FitPadding;
         case plot::PlotStyleVar::PlotPadding:       return ImPlotStyleVar_PlotPadding;
         case plot::PlotStyleVar::PlotBorderSize:    return ImPlotStyleVar_PlotBorderSize;
         case plot::PlotStyleVar::AnnotationPadding: return ImPlotStyleVar_AnnotationPadding;
-        default:                                    return ImPlotStyleVar_PlotPadding;  // shouldn't happen
+        default:                                    std::unreachable();
         }
     }
 
     constexpr ImPlotCol to_ImPlotCol(plot::PlotColorVar var)
     {
         static_assert(num_options<plot::PlotColorVar>() == 2);
-
         switch (var) {
         case plot::PlotColorVar::Line:           return ImPlotCol_Line;
         case plot::PlotColorVar::PlotBackground: return ImPlotCol_PlotBg;
-        default:                                 return ImPlotCol_Line;  // shouldn't happen
+        default:                                 std::unreachable();
         }
     }
 
     constexpr ImAxis to_ImAxis(plot::Axis axis)
     {
         static_assert(num_options<plot::Axis>() == 2);
-
         switch (axis) {
         case plot::Axis::X1: return ImAxis_X1;
         case plot::Axis::Y1: return ImAxis_Y1;
-        default:             return ImAxis_X1;  // shouldn't happen
+        default:             std::unreachable();
         }
     }
 
     constexpr ImPlotAxisFlags to_ImPlotAxisFlags(plot::AxisFlags flags)
     {
-        static_assert(cpp23::to_underlying(plot::AxisFlags::None) == ImPlotAxisFlags_None);
-        static_assert(cpp23::to_underlying(plot::AxisFlags::NoLabel) == ImPlotAxisFlags_NoLabel);
-        static_assert(cpp23::to_underlying(plot::AxisFlags::NoGridLines) == ImPlotAxisFlags_NoGridLines);
-        static_assert(cpp23::to_underlying(plot::AxisFlags::NoTickMarks) == ImPlotAxisFlags_NoTickMarks);
-        static_assert(cpp23::to_underlying(plot::AxisFlags::NoTickLabels) == ImPlotAxisFlags_NoTickLabels);
-        static_assert(cpp23::to_underlying(plot::AxisFlags::NoMenus) == ImPlotAxisFlags_NoMenus);
-        static_assert(cpp23::to_underlying(plot::AxisFlags::AutoFit) == ImPlotAxisFlags_AutoFit);
-        static_assert(cpp23::to_underlying(plot::AxisFlags::LockMin) == ImPlotAxisFlags_LockMin);
-        static_assert(cpp23::to_underlying(plot::AxisFlags::LockMax) == ImPlotAxisFlags_LockMax);
-        static_assert(cpp23::to_underlying(plot::AxisFlags::Lock) == ImPlotAxisFlags_Lock);
-        static_assert(cpp23::to_underlying(plot::AxisFlags::NoDecorations) == ImPlotAxisFlags_NoDecorations);
+        static_assert(std::to_underlying(plot::AxisFlags::None) == ImPlotAxisFlags_None);
+        static_assert(std::to_underlying(plot::AxisFlags::NoLabel) == ImPlotAxisFlags_NoLabel);
+        static_assert(std::to_underlying(plot::AxisFlags::NoGridLines) == ImPlotAxisFlags_NoGridLines);
+        static_assert(std::to_underlying(plot::AxisFlags::NoTickMarks) == ImPlotAxisFlags_NoTickMarks);
+        static_assert(std::to_underlying(plot::AxisFlags::NoTickLabels) == ImPlotAxisFlags_NoTickLabels);
+        static_assert(std::to_underlying(plot::AxisFlags::NoMenus) == ImPlotAxisFlags_NoMenus);
+        static_assert(std::to_underlying(plot::AxisFlags::AutoFit) == ImPlotAxisFlags_AutoFit);
+        static_assert(std::to_underlying(plot::AxisFlags::LockMin) == ImPlotAxisFlags_LockMin);
+        static_assert(std::to_underlying(plot::AxisFlags::LockMax) == ImPlotAxisFlags_LockMax);
+        static_assert(std::to_underlying(plot::AxisFlags::Lock) == ImPlotAxisFlags_Lock);
+        static_assert(std::to_underlying(plot::AxisFlags::NoDecorations) == ImPlotAxisFlags_NoDecorations);
 
         return static_cast<ImPlotAxisFlags>(flags);
     }
@@ -3981,7 +4113,7 @@ namespace
         switch (condition) {
         case plot::Condition::Always: return ImPlotCond_Always;
         case plot::Condition::Once:   return ImPlotCond_Once;
-        default:                      return ImPlotCond_Once;  // shouldn't happen
+        default:                      std::unreachable();
         }
     }
 
@@ -3991,15 +4123,15 @@ namespace
         switch (marker_type) {
         case plot::MarkerType::None:   return ImPlotMarker_None;
         case plot::MarkerType::Circle: return ImPlotMarker_Circle;
-        default:                       return ImPlotMarker_None;  // shouldn't happen
+        default:                       std::unreachable();
         }
     }
 
     constexpr ImPlotDragToolFlags to_ImPlotDragToolFlags(plot::DragToolFlags flags)
     {
-        static_assert(cpp23::to_underlying(plot::DragToolFlag::None) == ImPlotDragToolFlags_None);
-        static_assert(cpp23::to_underlying(plot::DragToolFlag::NoFit) == ImPlotDragToolFlags_NoFit);
-        static_assert(cpp23::to_underlying(plot::DragToolFlag::NoInputs) == ImPlotDragToolFlags_NoInputs);
+        static_assert(std::to_underlying(plot::DragToolFlag::None) == ImPlotDragToolFlags_None);
+        static_assert(std::to_underlying(plot::DragToolFlag::NoFit) == ImPlotDragToolFlags_NoFit);
+        static_assert(std::to_underlying(plot::DragToolFlag::NoInputs) == ImPlotDragToolFlags_NoInputs);
         static_assert(num_flags<plot::DragToolFlag>() == 2);
         return static_cast<ImPlotDragToolFlags>(flags.underlying_value());
     }
@@ -4017,14 +4149,14 @@ namespace
         case plot::Location::SouthWest: return ImPlotLocation_SouthWest;
         case plot::Location::West:      return ImPlotLocation_West;
         case plot::Location::NorthWest: return ImPlotLocation_NorthWest;
-        default:                        return ImPlotLocation_Center;  // shouldn't happen
+        default:                        std::unreachable();
         }
     }
 
     constexpr ImPlotLegendFlags to_ImPlotLegendFlags(plot::LegendFlags flags)
     {
-        static_assert(cpp23::to_underlying(plot::LegendFlags::None) == ImPlotLegendFlags_None);
-        static_assert(cpp23::to_underlying(plot::LegendFlags::Outside) == ImPlotLegendFlags_Outside);
+        static_assert(std::to_underlying(plot::LegendFlags::None) == ImPlotLegendFlags_None);
+        static_assert(std::to_underlying(plot::LegendFlags::Outside) == ImPlotLegendFlags_Outside);
         return static_cast<ImPlotLegendFlags>(flags);
     }
 }
