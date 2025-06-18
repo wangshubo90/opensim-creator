@@ -10,7 +10,7 @@ set -xeuo pipefail
 # ----- handle external build parameters ----- #
 
 # "base" build type to use when build types haven't been specified
-OSC_BASE_BUILD_TYPE=${OSC_BASE_BUILD_TYPE:-Release}
+OSC_BASE_BUILD_TYPE=${OSC_BASE_BUILD_TYPE:-Debug}
 
 # build type for all of OSC's dependencies
 OSC_DEPS_BUILD_TYPE=${OSC_DEPS_BUILD_TYPE:-`echo ${OSC_BASE_BUILD_TYPE}`}
@@ -36,7 +36,7 @@ OSC_BUILD_CONCURRENCY=${OSC_BUILD_CONCURRENCY:-$(sysctl -n hw.ncpu)}
 OSC_CMAKE_CONFIG_EXTRA=${OSC_CMAKE_CONFIG_EXTRA:-""}
 
 # which OSC build target to build
-OSC_BUILD_TARGET=${OSC_BUILD_TARGET:-package}
+OSC_BUILD_TARGET=${OSC_BUILD_TARGET:-osc}
 
 set +x
 echo "----- starting build -----"
@@ -70,7 +70,10 @@ cmake \
     -B third_party-build \
     -DCMAKE_BUILD_TYPE=${OSC_DEPS_BUILD_TYPE} \
     -DCMAKE_INSTALL_PREFIX=third_party-install \
+    -DCMAKE_C_COMPILER=clang \
+    -DCMAKE_CXX_COMPILER=clang++ \
     -DOSCDEPS_BUILD_ALWAYS=${OSC_DEPS_BUILD_ALWAYS} \
+    -DCMAKE_CXX_STANDARD=17 \
     ${OSC_CMAKE_CONFIG_EXTRA}
 cmake --build third_party-build --verbose -j${OSC_BUILD_CONCURRENCY}
 
