@@ -5,6 +5,12 @@ on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Upcoming Release]
 
+- The `osc.toml` configuration file now supports a `model_editor/monitor_osim_changes`
+  boolean option, which can be used to explicitly tell the OpenSim model editor
+  whether or not to auto-reload the file when it changes on disk (defaults to
+  `true`, #1000).
+- The lightning button in the properties panel is now clickable even if the
+  model is readonly (e.g. when simulating, #777).
 - SVG icons and banners now rasterize in high DPI mode when rendering to a
   high DPI monitor.
 - Keyboard navigation between elements in the UI is now easier and supports (e.g.)
@@ -35,6 +41,8 @@ on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Internal: `liboscar` now explicitly outlines that it uses a right-handed coordinate
   system and encoding format for textures (i.e. x goes right, y goes up, origin is
   bottom-left), which matches OpenGL's conventions (#1044).
+- Internal: All graphics test suites now use the same test source file convention as
+  the rest of the codebase (#763).
 
 
 ## [0.5.23] - 2025/05/26

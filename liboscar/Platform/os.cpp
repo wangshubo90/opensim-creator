@@ -74,8 +74,10 @@ std::tm osc::system_calendar_time()
     rv.tm_wday = dt.day_of_week;
     rv.tm_yday = doy;
     rv.tm_isdst = dt.utc_offset > 0;
+#ifdef __USE_MISC
     rv.tm_gmtoff = dt.utc_offset;
     // rv.tm_zone  // TODO
+#endif
     return rv;
 }
 
@@ -119,7 +121,7 @@ std::string osc::get_clipboard_text()
 {
     if (char* str = SDL_GetClipboardText()) {
         const ScopeExit guard{[str]() { SDL_free(str); }};
-        return str;
+        return std::string{str};
     }
     else {
         return {};
@@ -131,42 +133,26 @@ bool osc::set_clipboard_text(std::string_view content)
     return SDL_SetClipboardText(std::string{content}.c_str());
 }
 
-void osc::set_environment_variable(std::string_view name, std::string_view value, bool overwrite)
-{
-    SDL_setenv_unsafe(std::string{name}.c_str(), std::string{value}.c_str(), overwrite ? 1 : 0);
-}
-
-bool osc::is_environment_variable_set(std::string_view name)
-{
-    return SDL_getenv_unsafe(std::string{name}.c_str()) != nullptr;
-}
-
-std::optional<std::string> osc::find_environment_variable(std::string_view name)
-{
-    if (const char* v = SDL_getenv_unsafe(std::string{name}.c_str())) {
-        return std::string{v};
-    }
-    else {
-        return std::nullopt;
-    }
-}
-
 namespace
 {
     constexpr std::string_view c_valid_dynamic_characters = "abcdefghijklmnopqrstuvwxyz0123456789";
-    void write_dynamic_name_els(std::ostream& out)
+    void write_dynamic_name_els(
+        std::default_random_engine& s_prng,
+        std::ostream& out)
     {
-        std::default_random_engine s_prng{std::random_device{}()};
         std::array<char, 8> rv{};
         rgs::sample(c_valid_dynamic_characters, rv.begin(), rv.size(), s_prng);
         out << std::string_view{rv.begin(), rv.end()};
     }
 
-    std::filesystem::path generate_tempfile_name(std::string_view suffix, std::string_view prefix)
+    std::filesystem::path generate_tempfile_name(
+        std::default_random_engine& s_prng,
+        std::string_view suffix,
+        std::string_view prefix)
     {
         std::stringstream ss;
         ss << prefix;
-        write_dynamic_name_els(ss);
+        write_dynamic_name_els(s_prng, ss);
         ss << suffix;
         return std::filesystem::path{std::move(ss).str()};
     }
@@ -174,9 +160,10 @@ namespace
 
 std::pair<std::fstream, std::filesystem::path> osc::mkstemp(std::string_view suffix, std::string_view prefix)
 {
+    std::default_random_engine s_prng{std::random_device{}()};
     const std::filesystem::path tmpdir = std::filesystem::temp_directory_path();
     for (size_t attempt = 0; attempt < 100; ++attempt) {
-        std::filesystem::path attempt_path = tmpdir / generate_tempfile_name(suffix, prefix);
+        std::filesystem::path attempt_path = tmpdir / generate_tempfile_name(s_prng, suffix, prefix);
         // TODO: remove these `pragma`s once the codebase is upgraded to C++23, because it has `std::ios_base::noreplace` support
 #pragma warning(push)
 #pragma warning(suppress : 4996)
