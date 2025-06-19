@@ -21,6 +21,7 @@ target_link_libraries(headlessviewer PRIVATE
     oscar
     $<$<BOOL:${OSC_BUNDLE_OSCAR_DEMOS}>:oscar_demos>
     stb
+    tomlplusplus::tomlplusplus
 )
 
 
