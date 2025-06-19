@@ -32,18 +32,91 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
-#include <algorithm>
 #include <string>
 #include "libopensimcreator/Documents/Simulation/SimulationModelStatePair.h"
 #include "libopensimcreator/Documents/Simulation/SimulationReport.h"
 #include "libopensimcreator/Documents/Simulation/StoFileSimulation.h"
+#include <toml++/toml.h>
+
 
 using namespace osc;
 
-std::string replace_extension(const std::string& path, const std::string& new_ext) {
-    std::filesystem::path p(path);
-    p.replace_extension(new_ext);
-    return p.string();
+namespace{
+
+    template<typename T>
+    T get_or_default(const toml::table& tbl, const std::string& key, T default_val) {
+        if (auto node = tbl.get(key)) {
+            if (auto val = node->value<T>()) {
+                return *val;
+            }
+        }
+        return default_val;
+    }
+
+    std::string replace_extension(const std::string& path, const std::string& new_ext) {
+        std::filesystem::path p(path);
+        p.replace_extension(new_ext);
+        return p.string();
+    }
+
+    osc::ModelRendererParams loadRenderParamsFromToml(const std::string& path){
+        ModelRendererParams params;
+        auto tbl = toml::parse_file(path);
+
+        // backgroundColor
+        if (auto bg = tbl["backgroundColor"].as_array()) {
+            params.backgroundColor = Color{
+                static_cast<float>((*bg)[0].value_or(0.0)),
+                static_cast<float>((*bg)[1].value_or(0.0)),
+                static_cast<float>((*bg)[2].value_or(0.0)),
+                static_cast<float>((*bg)[3].value_or(1.0))
+            };
+        }
+
+        // lightColor
+        if (auto lc = tbl["lightColor"].as_array()) {
+            params.lightColor = Color{
+                static_cast<float>((*lc)[0].value_or(1.0)),
+                static_cast<float>((*lc)[1].value_or(1.0)),
+                static_cast<float>((*lc)[2].value_or(1.0)),
+                static_cast<float>((*lc)[3].value_or(1.0))
+            };
+        }
+
+        // floorLocation
+        if (auto fl = tbl["floorLocation"].as_array()) {
+            params.floorLocation = Vec3{
+                static_cast<float>((*fl)[0].value_or(0.0)),
+                static_cast<float>((*fl)[1].value_or(0.0)),
+                static_cast<float>((*fl)[2].value_or(0.0))
+            };
+        }
+
+        // camera
+        if (auto cam = tbl["camera"].as_table()) {
+            params.camera.radius = get_or_default<float>(*cam, "camera", 1.0f);
+            params.camera.theta = Degrees(get_or_default(*cam, "theta", 0.0f));
+            params.camera.phi = Degrees(get_or_default(*cam, "phi", 0.0f));
+            params.camera.vertical_field_of_view = Degrees(get_or_default(*cam, "vfov", 35.0f));
+            params.camera.znear = get_or_default(*cam, "znear", 0.1f);
+            params.camera.zfar = get_or_default(*cam, "zfar", 10.0f);
+            if (auto f = cam->get_as<toml::array>("focus")) {
+                params.camera.focus_point = Vec3{
+                    static_cast<float>((*f)[0].value_or(0.0)),
+                    static_cast<float>((*f)[1].value_or(0.0)),
+                    static_cast<float>((*f)[2].value_or(0.0))
+                };
+            }
+        }
+
+        // renderingOptions
+        if (auto ro = tbl["renderingOptions"].as_table()) {
+            params.renderingOptions.setDrawFloor(get_or_default(*ro, "drawFloor", true));
+            // add more flags if needed
+        }
+
+        return params;
+    };
 }
 
 int main(int argc, char** argv) {
@@ -107,8 +180,12 @@ int main(int argc, char** argv) {
 
     std::cout << "Saved screenshot to " << outputImagePath << "\n";
 
+    auto modelCopy = std::make_unique<OpenSim::Model>(model.getModel());
+    InitializeModel(*modelCopy);
+    InitializeState(*modelCopy);
+
     auto simulation = std::make_shared<Simulation>(
-            StoFileSimulation{std::make_unique<OpenSim::Model>(model.getModel()),
+            StoFileSimulation{std::move(modelCopy),
             motionFilePath,
             model.getFixupScaleFactor(),
             model.tryUpdEnvironment()
@@ -124,6 +201,7 @@ int main(int argc, char** argv) {
                             std::to_string(width) + "x" + std::to_string(height) +
                             " -framerate 10 -i - -filter_complex \"split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse\" -loop 0 -f gif " +
                             replace_extension(outputImagePath, "gif");
+    
     FILE* ffmpegPipe = popen(ffmpegCmd.c_str(), "w");
     if (!ffmpegPipe) {
         std::cerr << "Failed to open ffmpeg pipe\n";
@@ -147,7 +225,7 @@ int main(int argc, char** argv) {
         graphics::copy_texture(tex, tex2D);
 
         auto pixel_data = tex2D.pixel_data();
-        std::memcpy(frameBuffer.data(), &pixel_data, frameBuffer.size());
+        std::memcpy(frameBuffer.data(), pixel_data.data(), frameBuffer.size());
         fwrite(frameBuffer.data(), 1, frameBuffer.size(), ffmpegPipe);
     }
 
