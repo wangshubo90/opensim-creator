@@ -39,6 +39,9 @@ public:
         drawLoopButton();
         ui::same_line();
 
+        drawRecordButton();
+        ui::same_line();
+
         drawPlaybackSpeedSelector();
         ui::same_line();
 
@@ -81,6 +84,18 @@ private:
                 m_SimulatorAPI->setSimulationLoopingState(SimulationUILoopingState::PlayOnce);
             }
         }
+    }
+
+    void drawRecordButton() {
+        static_assert(num_options<SimulationUIRecorderState>() == 2);
+        if (ui::draw_button(OSC_ICON_CIRCLE)) {
+            
+        };
+        ui::draw_tooltip_if_item_hovered("Start Recording");
+        ui::same_line();
+        if (ui::draw_button(OSC_ICON_MARKER)) {
+        };
+        ui::draw_tooltip_if_item_hovered("Stop Recording");
     }
 
     void drawPlayOrPauseOrReplayButton()

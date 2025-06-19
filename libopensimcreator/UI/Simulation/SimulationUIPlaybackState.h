@@ -7,4 +7,10 @@ namespace osc
         Stopped,
         NUM_OPTIONS
     };
+
+    enum class SimulationUIRecorderState {
+        Recording,
+        Stopped,
+        NUM_OPTIONS
+    };
 }
