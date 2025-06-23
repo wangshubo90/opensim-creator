@@ -236,8 +236,6 @@ int main(int argc, char** argv) {
         graphics::copy_texture(textureMot, tex2DMot);
 
         auto pixel_data = tex2DMot.pixel_data();
-        assert(pixel_data.size() == frameBuffer.size());
-        // std::memcpy(frameBuffer.data(), pixel_data.data(), frameBuffer.size());
 
         const int rowBytes = width * 3;
         for (int y = 0; y < height; ++y) {
@@ -245,12 +243,8 @@ int main(int argc, char** argv) {
             std::memcpy(frameBuffer.data() + y * rowBytes, src, rowBytes);
         }
 
-        std::cout << "DEBUG: Frame " << i << " - Bytes to write: " << frameBuffer.size() << "\n";
         size_t bytes_written = fwrite(frameBuffer.data(), 1, frameBuffer.size(), ffmpegPipe);
-        fflush(ffmpegPipe);
-        // size_t bytes_written = fwrite(tex2DMot.pixel_data().data(), 1, frameBuffer.size(), ffmpegPipe);
 
-        assert(tex2DMot.pixel_data().size() == frameBuffer.size());
         if (bytes_written != frameBuffer.size()) {
             std::cerr << "Error writing frame data to pipe. Bytes written: " << bytes_written << " Expected: " << frameBuffer.size() << std::endl;
             break;
