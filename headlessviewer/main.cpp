@@ -203,17 +203,23 @@ int main(int argc, char** argv) {
     //                         outputGifPath;
     std::string ffmpegCmd = "ffmpeg -y -f rawvideo -pixel_format rgb24 -video_size " +
                             std::to_string(width) + "x" + std::to_string(height) +
-                            " -framerate 10 -i pipe:0 -c:v libx264 -pix_fmt yuv420p -preset fast " +
+                            " -framerate 20 -i pipe:0 -c:v libx264 -pix_fmt yuv420p -preset fast " +
                             outputGifPath;
 
-    FILE* ffmpegPipe = popen(ffmpegCmd.c_str(), "w");
+#ifdef _WIN32
+    FILE* ffmpegPipe = _popen(ffmpegCmd.c_str(), "wb");
+#else
+    FILE* ffmpegPipe = popen(ffmpegCmd.c_str(), "w");  // Use "w" for writing to stdin
+#endif
+
     if (!ffmpegPipe) {
         std::cerr << "Failed to open ffmpeg pipe\n";
         return 1;
+    } else {
+        std::cout << "Opened ffmpeg pipe for writing with " << ffmpegCmd << "\n";
     }
 
     std::vector<uint8_t> frameBuffer(static_cast<size_t>(width * height * 3));
-    std::ofstream ofs(outputImagePath + "debug_frame.raw", std::ios::binary);
 
     for (ptrdiff_t i = 0; i < numSimulationReports; ++i) {
         const SimulationReport r = simulation->getSimulationReport(i);
@@ -238,10 +244,11 @@ int main(int argc, char** argv) {
             const uint8_t* src = pixel_data.data() + (height - 1 - y) * rowBytes;
             std::memcpy(frameBuffer.data() + y * rowBytes, src, rowBytes);
         }
-        size_t bytes_written = fwrite(frameBuffer.data(), 1, frameBuffer.size(), ffmpegPipe);
-        // size_t bytes_written = fwrite(tex2DMot.pixel_data().data(), 1, frameBuffer.size(), ffmpegPipe);
 
-        ofs.write(reinterpret_cast<const char*>(frameBuffer.data()), frameBuffer.size());
+        std::cout << "DEBUG: Frame " << i << " - Bytes to write: " << frameBuffer.size() << "\n";
+        size_t bytes_written = fwrite(frameBuffer.data(), 1, frameBuffer.size(), ffmpegPipe);
+        fflush(ffmpegPipe);
+        // size_t bytes_written = fwrite(tex2DMot.pixel_data().data(), 1, frameBuffer.size(), ffmpegPipe);
 
         assert(tex2DMot.pixel_data().size() == frameBuffer.size());
         if (bytes_written != frameBuffer.size()) {
@@ -250,7 +257,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    ofs.close();
     pclose(ffmpegPipe);
 
     std::cout << "Saved motion cap to " << outputGifPath << "\n";
