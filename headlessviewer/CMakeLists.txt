@@ -34,7 +34,20 @@ if (WIN32)
     add_custom_command(
         TARGET headlessviewer
         PRE_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy -t $<TARGET_FILE_DIR:hellooscar> $<TARGET_RUNTIME_DLLS:hellooscar>
+        COMMAND ${CMAKE_COMMAND} -E copy -t $<TARGET_FILE_DIR:headlessviewer> $<TARGET_RUNTIME_DLLS:headlessviewer>
         COMMAND_EXPAND_LISTS
     )
 endif()
+
+install(
+    TARGETS headlessviewer
+    RUNTIME_DEPENDENCIES
+        PRE_EXCLUDE_REGEXES "api-ms-" "ext-ms-"  # don't install Windows-provided libs
+        POST_EXCLUDE_REGEXES ".*system32/.*\\.dll"  # don't install Windows-provided libs
+)
+
+install(
+    FILES "${CMAKE_CURRENT_SOURCE_DIR}/config.toml"
+    RENAME "headlessviewer.toml"
+    DESTINATION "."
+)
