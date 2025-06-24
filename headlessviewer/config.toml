@@ -1,0 +1,26 @@
+background_color = [0.1, 0.1, 0.1, 1.0]
+light_color = [1.0, 1.0, 1.0, 1.0]
+
+[camera]
+radius = 1.219606
+theta = 180.0
+phi = 0.0
+vfov = 35
+znear = 0.121961
+zfar = 12.196062
+focus_point = [-0.068828, -0.197732, -0.008137] # x, y, z
+
+[renderer]
+draw_floor = false
+draw_shadows = true
+
+[decoration]
+xy_grid = false
+xz_grid = false
+yz_grid = false
+axis_lines = false
+
+[snapshot]
+width = 1024
+height = 768
+fps = 200
