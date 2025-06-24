@@ -24,6 +24,7 @@
 #include <liboscar/Maths/MathHelpers.h>
 #include <liboscar/Maths/PolarPerspectiveCamera.h>
 #include <liboscar/Platform/App.h>
+#include <liboscar/Platform/Log.h>
 #include <toml++/toml.h>
 
 #include <cstddef>
@@ -46,7 +47,34 @@ using namespace osc;
 #define pclose _pclose
 #endif
 
+namespace fs = std::filesystem;
 namespace {
+struct MockState final {
+    std::optional<ResourcePath> last_open_call_path;
+    std::optional<ResourcePath> last_existence_check_path;
+};
+
+class MockResourceLoader : public IResourceLoader {
+   public:
+    explicit MockResourceLoader(std::shared_ptr<MockState> state_) : state_{std::move(state_)} {}
+
+   private:
+    bool impl_resource_exists(const ResourcePath& resource_path) final {
+        state_->last_existence_check_path = resource_path;
+        return true;
+    }
+
+    ResourceStream impl_open(const ResourcePath& resource_path) override {
+        state_->last_open_call_path = resource_path;
+        return ResourceStream{};
+    }
+
+    std::function<std::optional<ResourceDirectoryEntry>()> impl_iterate_directory(const ResourcePath&) override {
+        return [] { return std::nullopt; };
+    }
+
+    std::shared_ptr<MockState> state_;
+};
 
 template <typename T>
 T get_or_default(const toml::table& tbl, const std::string& key, T default_val) {
@@ -59,17 +87,14 @@ T get_or_default(const toml::table& tbl, const std::string& key, T default_val) 
 }
 
 std::string replace_extension(const std::string& path, const std::string& new_ext) {
-    std::filesystem::path p(path);
+    fs::path p(path);
     p.replace_extension(new_ext);
     return p.string();
 }
 
-osc::ModelRendererParams loadRenderParamsFromToml(const std::string& path) {
-    ModelRendererParams params;
-    auto tbl = toml::parse_file(path);
-
+void updateRenderParamsFromToml(const toml::table tbl, ModelRendererParams& params) {
     // backgroundColor
-    if (auto bg = tbl["backgroundColor"].as_array()) {
+    if (auto bg = tbl["background_color"].as_array()) {
         params.backgroundColor = Color{
             static_cast<float>((*bg)[0].value_or(0.0)),
             static_cast<float>((*bg)[1].value_or(0.0)),
@@ -78,7 +103,7 @@ osc::ModelRendererParams loadRenderParamsFromToml(const std::string& path) {
     }
 
     // lightColor
-    if (auto lc = tbl["lightColor"].as_array()) {
+    if (auto lc = tbl["light_color"].as_array()) {
         params.lightColor = Color{
             static_cast<float>((*lc)[0].value_or(1.0)),
             static_cast<float>((*lc)[1].value_or(1.0)),
@@ -96,13 +121,13 @@ osc::ModelRendererParams loadRenderParamsFromToml(const std::string& path) {
 
     // camera
     if (auto cam = tbl["camera"].as_table()) {
-        params.camera.radius = get_or_default<float>(*cam, "camera", 1.0f);
-        params.camera.theta = Degrees(get_or_default(*cam, "theta", 0.0f));
+        params.camera.radius = get_or_default<float>(*cam, "radius", 1.0f);
+        params.camera.theta = Degrees(get_or_default(*cam, "theta", 180.0f));
         params.camera.phi = Degrees(get_or_default(*cam, "phi", 0.0f));
         params.camera.vertical_field_of_view = Degrees(get_or_default(*cam, "vfov", 35.0f));
         params.camera.znear = get_or_default(*cam, "znear", 0.1f);
         params.camera.zfar = get_or_default(*cam, "zfar", 10.0f);
-        if (auto f = cam->get_as<toml::array>("focus")) {
+        if (auto f = cam->get_as<toml::array>("focus_point")) {
             params.camera.focus_point = Vec3{
                 static_cast<float>((*f)[0].value_or(0.0)),
                 static_cast<float>((*f)[1].value_or(0.0)),
@@ -111,57 +136,175 @@ osc::ModelRendererParams loadRenderParamsFromToml(const std::string& path) {
     }
 
     // renderingOptions
-    if (auto ro = tbl["renderingOptions"].as_table()) {
-        params.renderingOptions.setDrawFloor(get_or_default(*ro, "drawFloor", true));
-        // add more flags if needed
+    if (auto ro = tbl["renderer"].as_table()) {
+        params.renderingOptions.setDrawFloor(get_or_default(*ro, "draw_floor", false));
+        params.renderingOptions.setDrawShadows(get_or_default(*ro, "draw_shadows", true));
     }
 
-    return params;
+    // decorationOptions
+    if (auto deco = tbl["decoration"].as_table()) {
+        params.overlayOptions.setDrawXYGrid(get_or_default(*deco, "xy_grid", false));
+        params.overlayOptions.setDrawXZGrid(get_or_default(*deco, "xz_grid", false));
+        params.overlayOptions.setDrawYZGrid(get_or_default(*deco, "yz_grid", false));
+        params.overlayOptions.setDrawAxisLines(get_or_default(*deco, "axis_lines", false));
+    }
 };
 }  // namespace
 
+bool is_executable(const fs::path& p) {
+    if (fs::exists(p) && fs::is_regular_file(p)) {
+        // On POSIX, check executable permission
+#ifndef _WIN32
+        auto perms = fs::status(p).permissions();
+        return (perms & fs::perms::owner_exec) != fs::perms::none ||
+               (perms & fs::perms::group_exec) != fs::perms::none ||
+               (perms & fs::perms::others_exec) != fs::perms::none;
+#else
+        // On Windows, simply existing as a file is usually enough,
+        // though you might try to actually run it with a silent command.
+        // For simplicity, we'll assume existence is sufficient.
+        return true;
+#endif
+    }
+    return false;
+}
+
+fs::path find_ffmpeg_executable() {
+// 1. Check common default/expected locations
+#ifdef _WIN32
+    std::vector<fs::path> common_paths = {
+        "C:/Program Files/ffmpeg/bin/ffmpeg.exe",
+        "C:/ffmpeg/bin/ffmpeg.exe",
+        "D:/ffmpeg/bin/ffmpeg.exe"  // Or other drives
+    };
+#else  // Linux/macOS
+    std::vector<fs::path> common_paths = {
+        "/usr/local/bin/ffmpeg",
+        "/usr/bin/ffmpeg",
+        "/bin/ffmpeg",
+        "/opt/ffmpeg/bin/ffmpeg"};
+#endif
+
+    for (const auto& p : common_paths) {
+        if (is_executable(p)) {
+            std::cout << "Found ffmpeg in common path: " << p.string() << std::endl;
+            return p;
+        }
+    }
+
+    // 2. Search PATH environment variable
+    std::string path_env;
+#ifdef _WIN32
+    // Windows requires a different way to get env vars with potentially large buffers
+    DWORD bufferSize = GetEnvironmentVariableA("PATH", NULL, 0);
+    if (bufferSize > 0) {
+        std::vector<char> buffer(bufferSize);
+        GetEnvironmentVariableA("PATH", buffer.data(), bufferSize);
+        path_env = std::string(buffer.data());
+    }
+#else
+    const char* path_cstr = getenv("PATH");
+    if (path_cstr) {
+        path_env = path_cstr;
+    }
+#endif
+
+    if (!path_env.empty()) {
+        const char path_sep =
+#ifdef _WIN32
+            ';';
+#else
+            ':';
+#endif
+        std::string current_path;
+        std::stringstream ss(path_env);
+
+        while (std::getline(ss, current_path, path_sep)) {
+            fs::path potential_path = fs::path(current_path) /
+#ifdef _WIN32
+                                      "ffmpeg.exe";
+#else
+                                      "ffmpeg";
+#endif
+            if (is_executable(potential_path)) {
+                std::cout << "Found ffmpeg in PATH: " << potential_path.string() << std::endl;
+                return potential_path;
+            }
+        }
+    }
+
+    return {};  // Return empty path if not found
+}
+
 int main(int argc, char** argv) {
-    if (argc < 3 || argc > 4) {
-        std::cerr << "Usage: osc_render_tool <model.osim> <output.png> [<motion.sto>]\n";
+    if (argc < 3) {
+        std::cout << "Usage: osc_render_tool <model.osim> <output.png> [<motion.sto>]\n"
+                  << "Options:\n"
+                  << "  --ffmpeg-path <path>   Specify custom ffmpeg executable path\n"
+                  << "  --config <path>        Load custom render parameters from a config file\n";
         return 1;
+    }
+
+    fs::path ffmpeg_path;
+    std::string user_provided_path;
+    toml::table renderParamsTable;
+
+    // Example: Parse command-line arguments for --ffmpeg-path
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--ffmpeg-path" && i + 1 < argc) {
+            user_provided_path = argv[++i];
+            log_info("User provided ffmpeg path: %s", user_provided_path.c_str());
+        } else if (arg == "--config" && i + 1 < argc) {
+            // Load custom render parameters from a config file
+            std::string configPath = argv[++i];
+            if (fs::exists(configPath)) {
+                renderParamsTable = toml::parse_file(configPath);
+                // Use `renderParams` as needed
+                log_info("Loaded render parameters from config file: %s", configPath.c_str());
+            } else {
+                std::cerr << "Config file not found: " << configPath << "\n";
+                return 1;
+            }
+        }
     }
 
     const std::string osimPath = argv[1];
     const std::string outputImagePath = argv[2];
-    const std::filesystem::path motionFilePath(argv[3]);
+    fs::path motionFilePath;
+
+    if (argc > 3) {
+        motionFilePath = argv[3];
+    } else {
+        motionFilePath = "";  // No motion file provided
+    }
 
     // fixed render config
-    constexpr int width = 1024;
-    constexpr int height = 768;
+    int width = get_or_default<int>(renderParamsTable, "width", 1024);
+    int height = get_or_default<int>(renderParamsTable, "height", 768);
 
     // 1. Init application and OpenSim environment
     App app;
     GloballyInitOpenSim();
     GloballyAddDirectoryToOpenSimGeometrySearchPath(App::resource_filepath("geometry").string());
 
-    // 2. Load model and generate decorations
-    // setup rendering state
+    // 2. Load model and generate decorations & setup rendering state
     UndoableModelStatePair model{osimPath};
-    auto meshCache = std::make_shared<SceneCache>(App::resource_loader());
 
+    // const auto mock_state = std::make_shared<MockState>();
+    // const ResourcePath resource_path{"some/path"};
+    // ResourceLoader resource_loader = make_resource_loader<MockResourceLoader>(mock_state);
+    // auto meshCache = std::make_shared<SceneCache>(resource_loader);
+
+    auto meshCache = std::make_shared<SceneCache>(App::resource_loader());
     CachedModelRenderer renderer{meshCache};
 
     // 3. Set up camera
     ModelRendererParams renderParams;
     renderer.autoFocusCamera(model, renderParams, static_cast<float>(width) / height);
-    renderParams.camera.radius = 1.219606f;
-    renderParams.camera.theta = Degrees(180.0f);
-    renderParams.camera.phi = Degrees(0.0f);
-    renderParams.camera.vertical_field_of_view = Degrees(35.0f);
-    renderParams.camera.znear = 0.121961f;
-    renderParams.camera.zfar = 12.196062f;
-    renderParams.camera.focus_point.x = -0.068828f;
-    renderParams.camera.focus_point.y = -0.197732f;
-    renderParams.camera.focus_point.z = -0.008137f;
-    renderParams.backgroundColor = Color{0.1f, 0.1f, 0.1f, 1.0f};  // dark background
-    renderParams.renderingOptions.setDrawFloor(false);
-    // renderParams.decorationOptions
-    // renderParams.camera.theta = renderParams.camera.theta + Radians(45);  // fixed 45 degree rotation
+    if (!renderParamsTable.empty()) {
+        updateRenderParamsFromToml(renderParamsTable, renderParams);
+    }
 
     // 4. Render scene
     RenderTexture& tex = renderer.onDraw(
@@ -169,7 +312,8 @@ int main(int argc, char** argv) {
         renderParams,
         {width, height},
         1.0f,
-        app.anti_aliasing_level());
+        // app.anti_aliasing_level());
+        AntiAliasingLevel{1});  // Use no anti-aliasing for headless rendering
 
     // 5. Save to PNG
     Texture2D tex2D{tex.dimensions(), TextureFormat::RGB24, ColorSpace::sRGB};
@@ -179,7 +323,13 @@ int main(int argc, char** argv) {
     write_to_png(tex2D, fout);
     fout.close();
 
-    std::cout << "Saved screenshot to " << outputImagePath << "\n";
+    log_info("Saved screenshot to %s", outputImagePath.c_str());
+
+    // 6. If motion file is provided, render it to a video
+    if (motionFilePath.empty() || !fs::exists(motionFilePath)) {
+        log_info("No motion file provided or file does not exist. Exiting.");
+        return 0;  // No motion file to process
+    }
 
     auto modelCopy = std::make_unique<OpenSim::Model>(model.getModel());
     InitializeModel(*modelCopy);
@@ -193,17 +343,37 @@ int main(int argc, char** argv) {
 
     std::shared_ptr<SimulationModelStatePair> showModelState = std::make_shared<SimulationModelStatePair>();
     showModelState->setSimulation(simulation);
-
     const ptrdiff_t numSimulationReports = simulation->getNumReports();
-    auto outputGifPath = replace_extension(outputImagePath, "mp4");
+
+    if (!user_provided_path.empty()) {
+        fs::path p(user_provided_path);
+        if (is_executable(p)) {
+            ffmpeg_path = p;
+            log_info("Using user-specified ffmpeg path: %s", ffmpeg_path.c_str());
+        } else {
+            log_error("Provided ffmpeg path is not a valid executable: %s", p.c_str());
+            return 1;
+        }
+    } else {
+        ffmpeg_path = find_ffmpeg_executable();
+        log_info("Found ffmpeg at: %s", ffmpeg_path.c_str());
+    }
+
+    if (ffmpeg_path.empty()) {
+        log_error("ffmpeg executable not found. Please install ffmpeg or specify its path with --ffmpeg-path.");
+        return 1;  // Return an error code
+    }
+
     // Open pipe to ffmpeg
-    // std::string ffmpegCmd = "ffmpeg -y -f rawvideo -pixel_format rgb24 -video_size " +
+    // std::string ffmpegCmd = ffmpeg_path.string() + " -y -f rawvideo -pixel_format rgb24 -video_size " +
     //                         std::to_string(width) + "x" + std::to_string(height) +
-    //                         " -framerate 10 -i - -filter_complex \"split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse\" -loop -1 -f gif " +
+    //                         " -framerate " + std::to_string(fps) + " -i - -filter_complex \"split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse\" -loop -1 -f gif " +
     //                         outputGifPath;
-    std::string ffmpegCmd = "ffmpeg -y -f rawvideo -pixel_format rgb24 -video_size " +
+    auto fps = get_or_default<float>(renderParamsTable, "fps", 10.0f);
+    auto outputGifPath = replace_extension(outputImagePath, "mp4");
+    std::string ffmpegCmd = ffmpeg_path.string() + " -y -f rawvideo -pixel_format rgb24 -video_size " +
                             std::to_string(width) + "x" + std::to_string(height) +
-                            " -framerate 20 -i pipe:0 -c:v libx264 -pix_fmt yuv420p -preset fast " +
+                            " -framerate " + std::to_string(fps) + " -i pipe:0 -c:v libx264 -pix_fmt yuv420p -preset fast " +
                             outputGifPath;
 
 #ifdef _WIN32
@@ -230,7 +400,8 @@ int main(int argc, char** argv) {
             renderParams,
             {width, height},
             1.0f,
-            app.anti_aliasing_level());
+            // app.anti_aliasing_level());
+            AntiAliasingLevel{1});  // Use no anti-aliasing for headless rendering
 
         Texture2D tex2DMot{textureMot.dimensions(), TextureFormat::RGB24, ColorSpace::sRGB};
         graphics::copy_texture(textureMot, tex2DMot);
@@ -247,7 +418,7 @@ int main(int argc, char** argv) {
 
         if (bytes_written != frameBuffer.size()) {
             std::cerr << "Error writing frame data to pipe. Bytes written: " << bytes_written << " Expected: " << frameBuffer.size() << std::endl;
-            break;
+            return 1;  // Return an error code
         }
     }
 
