@@ -238,7 +238,7 @@ fs::path find_ffmpeg_executable() {
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        std::cout << "Usage: osc_render_tool <model.osim> <output.png> [<motion.sto>]\n"
+        std::cout << "Usage: headlessviewer <model.osim> <output.png> [<motion.sto>]\n"
                   << "Options:\n"
                   << "  --ffmpeg-path <path>   Specify custom ffmpeg executable path\n"
                   << "  --config <path>        Load custom render parameters from a config file\n";
@@ -301,7 +301,7 @@ int main(int argc, char** argv) {
 
     // 3. Set up camera
     ModelRendererParams renderParams;
-    renderer.autoFocusCamera(model, renderParams, static_cast<float>(width) / height);
+    renderer.autoFocusCamera(model, renderParams, static_cast<float>(width) / static_cast<float>(height));
     if (!renderParamsTable.empty()) {
         updateRenderParamsFromToml(renderParamsTable, renderParams);
     }
