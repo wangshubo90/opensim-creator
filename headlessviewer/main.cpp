@@ -365,13 +365,13 @@ int main(int argc, char** argv) {
     }
 
     // Open pipe to ffmpeg
-    // std::string ffmpegCmd = ffmpeg_path.string() + " -y -f rawvideo -pixel_format rgb24 -video_size " +
+    // std::string ffmpegCmd = ffmpeg_path.string() + " -nostats -loglevel error -y -f rawvideo -pixel_format rgb24 -video_size " +
     //                         std::to_string(width) + "x" + std::to_string(height) +
     //                         " -framerate " + std::to_string(fps) + " -i - -filter_complex \"split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse\" -loop -1 -f gif " +
     //                         outputGifPath;
     auto fps = get_or_default<float>(renderParamsTable, "fps", 10.0f);
     auto outputGifPath = replace_extension(outputImagePath, "mp4");
-    std::string ffmpegCmd = ffmpeg_path.string() + " -y -f rawvideo -pixel_format rgb24 -video_size " +
+    std::string ffmpegCmd = ffmpeg_path.string() + " -nostats -loglevel error -y -f rawvideo -pixel_format rgb24 -video_size " +
                             std::to_string(width) + "x" + std::to_string(height) +
                             " -framerate " + std::to_string(fps) + " -i pipe:0 -c:v libx264 -pix_fmt yuv420p -preset fast " +
                             outputGifPath;
@@ -415,6 +415,7 @@ int main(int argc, char** argv) {
         }
 
         size_t bytes_written = fwrite(frameBuffer.data(), 1, frameBuffer.size(), ffmpegPipe);
+        fflush(ffmpegPipe);
 
         if (bytes_written != frameBuffer.size()) {
             std::cerr << "Error writing frame data to pipe. Bytes written: " << bytes_written << " Expected: " << frameBuffer.size() << std::endl;
