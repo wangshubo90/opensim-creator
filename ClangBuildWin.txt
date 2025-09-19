@@ -1,0 +1,2 @@
+cmake -G Ninja -S third_party -B third_party-build-clang -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=third_party-install-clang -DOSCDEPS_BUILD_OPENBLAS=ON
+cmake --build third_party-build-clang -j16
